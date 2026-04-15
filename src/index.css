@@ -1,0 +1,82 @@
+@import url('https://fonts.googleapis.com/css2?family=Cormorant+Garamond:wght@500;600;700&family=Inter:wght@400;500;600;700&display=swap');
+
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+:root {
+  font-family: "Inter", "Segoe UI", sans-serif;
+  line-height: 1.5;
+  font-weight: 400;
+  color: rgba(245, 245, 244, 0.96);
+  background: #050506;
+  font-synthesis: none;
+  text-rendering: optimizeLegibility;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}
+
+html {
+  scroll-behavior: smooth;
+}
+
+body {
+  margin: 0;
+  min-width: 320px;
+  min-height: 100vh;
+  background: #050506;
+}
+
+#root {
+  min-height: 100vh;
+}
+
+button,
+input,
+textarea,
+select {
+  font: inherit;
+}
+
+::selection {
+  background: rgba(251, 191, 36, 0.25);
+  color: #fff7ed;
+}
+
+@layer base {
+  h1,
+  h2,
+  h3,
+  h4 {
+    font-family: "Cormorant Garamond", Georgia, serif;
+    letter-spacing: 0.01em;
+  }
+}
+
+@layer components {
+  .ornate-panel {
+    @apply rounded-[2rem] border border-amber-500/15 bg-[linear-gradient(180deg,rgba(28,25,23,0.92),rgba(10,10,11,0.97))] shadow-[0_20px_70px_rgba(0,0,0,0.35)] backdrop-blur;
+    position: relative;
+    overflow: hidden;
+  }
+
+  .ornate-panel::before {
+    content: "";
+    position: absolute;
+    inset: 0;
+    pointer-events: none;
+    background:
+      radial-gradient(circle at top right, rgba(34, 211, 238, 0.08), transparent 28%),
+      radial-gradient(circle at left center, rgba(251, 191, 36, 0.08), transparent 24%);
+    opacity: 0.8;
+  }
+
+  .ornate-panel::after {
+    content: "";
+    position: absolute;
+    inset: 14px;
+    border: 1px solid rgba(245, 158, 11, 0.08);
+    border-radius: 1.4rem;
+    pointer-events: none;
+  }
+}
