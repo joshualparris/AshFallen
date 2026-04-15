@@ -11,6 +11,83 @@ export interface LogEntry {
   turn: number
 }
 
+export type ObjectiveType = 'recoverRelics' | 'returnRareRelic' | 'surviveHighPressure' | 'discoverScene' | 'successfulRuns'
+
+export interface ObjectiveStatus {
+  id: string
+  type: ObjectiveType
+  label: string
+  detail: string
+  target: number
+  sceneId?: SceneId
+  rewardXp: number
+  progress: number
+  completed: boolean
+}
+
+interface ObjectiveDef {
+  id: string
+  type: ObjectiveType
+  label: string
+  detail: string
+  target: number
+  sceneId?: SceneId
+  rewardXp: number
+}
+
+const OBJECTIVE_DEFS: ObjectiveDef[] = [
+  {
+    id: 'recover_2_relics',
+    type: 'recoverRelics',
+    label: 'Recover two relics',
+    detail: 'Return with at least 2 relics in one extraction run.',
+    target: 2,
+    rewardXp: 18,
+  },
+  {
+    id: 'return_rare_relic',
+    type: 'returnRareRelic',
+    label: 'Bring back a rare relic',
+    detail: 'Extract successfully with a rare or mythic relic in your pack.',
+    target: 1,
+    rewardXp: 22,
+  },
+  {
+    id: 'survive_high_pressure',
+    type: 'surviveHighPressure',
+    label: 'Survive the rising Veil',
+    detail: 'Extract successfully with Veil Pressure at 60 or higher.',
+    target: 60,
+    rewardXp: 24,
+  },
+  {
+    id: 'discover_obelisk',
+    type: 'discoverScene',
+    label: 'Discover the obelisk',
+    detail: 'Find the Broken Obelisk during a run.',
+    target: 1,
+    sceneId: 'broken_obelisk',
+    rewardXp: 18,
+  },
+  {
+    id: 'two_extractions',
+    type: 'successfulRuns',
+    label: 'Two successful extractions',
+    detail: 'Complete two extraction runs successfully.',
+    target: 2,
+    rewardXp: 20,
+  },
+]
+
+function createObjective(def: ObjectiveDef): ObjectiveStatus {
+  return { ...def, progress: 0, completed: false }
+}
+
+function generateInitialObjectives() {
+  const shuffled = OBJECTIVE_DEFS.sort(() => Math.random() - 0.5)
+  return shuffled.slice(0, 3).map(createObjective)
+}
+
 interface GameState {
   level: number
   xp: number
@@ -25,13 +102,21 @@ interface GameState {
   archiveRelics: string[]
   discoveredScenes: SceneId[]
   runFlags: string[]
+  choiceUseCounts: Record<string, number>
   veilPressure: number
   completedRuns: number
   log: LogEntry[]
   turn: number
   runStatus: RunStatus
+  runStartXp: number
+  runStartArchiveCount: number
+  runStartDiscoveredCount: number
+  runResultCause: string
+  runResultNewObjectives: string[]
+  objectives: ObjectiveStatus[]
   lastLevelUpAt: number
   performChoice: (choiceId: string) => void
+  useItem: (itemId: string) => void
   settleRun: () => void
   resetGame: () => void
 }
@@ -39,7 +124,7 @@ interface GameState {
 const MAX_LOG = 18
 const MAX_INVENTORY = 6
 
-function createInitialState(): Omit<GameState, 'performChoice' | 'resetGame' | 'settleRun'> {
+function createInitialState(): Omit<GameState, 'performChoice' | 'useItem' | 'resetGame' | 'settleRun'> {
   return {
     level: 1,
     xp: 0,
@@ -54,8 +139,15 @@ function createInitialState(): Omit<GameState, 'performChoice' | 'resetGame' | '
     archiveRelics: [],
     discoveredScenes: ['ashfall_archive'],
     runFlags: [],
+    choiceUseCounts: {},
     veilPressure: 0,
     completedRuns: 0,
+    runStartXp: 0,
+    runStartArchiveCount: 0,
+    runStartDiscoveredCount: 1,
+    runResultCause: '',
+    runResultNewObjectives: [],
+    objectives: generateInitialObjectives(),
     log: [
       {
         id: crypto.randomUUID(),
@@ -149,6 +241,18 @@ export const useGameStore = create<GameState>()(
           return
         }
 
+        const choiceCount = state.choiceUseCounts[choice.id] ?? 0
+        if (choice.maxUses !== undefined && choiceCount >= choice.maxUses) {
+          set((current) => ({
+            log: appendLog(current.log, {
+              text: 'That route has been exhausted for this run. Press forward or return before the Veil tightens.',
+              type: 'system',
+              turn: current.turn,
+            }),
+          }))
+          return
+        }
+
         const nextTurn = state.turn + 1
         let vitality = clamp(state.vitality + (choice.cost?.vitality ?? 0), 0, state.maxVitality)
         let focus = clamp(state.focus + (choice.cost?.focus ?? 0), 0, state.maxFocus)
@@ -164,7 +268,12 @@ export const useGameStore = create<GameState>()(
         let discoveredScenes = [...state.discoveredScenes]
         let runFlags = [...state.runFlags]
         let veilPressure = state.veilPressure
+        let choiceUseCounts = { ...state.choiceUseCounts }
+        let xpBonusFromPassives = 0
         let runStatus: RunStatus = currentSceneId === 'ashfall_archive' ? 'hub' : 'expedition'
+        let runStartXp = state.runStartXp
+        let runStartArchiveCount = state.runStartArchiveCount
+        let runStartDiscoveredCount = state.runStartDiscoveredCount
         let lastLevelUpAt = state.lastLevelUpAt
         let log = appendLog(state.log, {
           text: `${scene.title}: ${choice.label}.`,
@@ -172,8 +281,48 @@ export const useGameStore = create<GameState>()(
           turn: nextTurn,
         })
 
+        if (choice.pressure !== undefined) {
+          veilPressure = clamp(veilPressure + choice.pressure, 0, 100)
+          log = appendLog(log, {
+            text: `Veil Pressure shifts by ${choice.pressure} as you commit to the move.`,
+            type: choice.pressure > 0 ? 'danger' : 'system',
+            turn: nextTurn,
+          })
+        } else if (state.currentSceneId !== 'ashfall_archive') {
+          veilPressure = clamp(veilPressure + 4, 0, 100)
+          log = appendLog(log, {
+            text: 'The Veil tightens another notch with every choice.',
+            type: 'danger',
+            turn: nextTurn,
+          })
+        }
+
+        if (choiceCount > 0 && choice.repeatPenalty) {
+          if (choice.repeatPenalty.message) {
+            log = appendLog(log, {
+              text: choice.repeatPenalty.message,
+              type: 'system',
+              turn: nextTurn,
+            })
+          }
+          if (choice.repeatPenalty.pressureDelta) {
+            veilPressure = clamp(veilPressure + choice.repeatPenalty.pressureDelta, 0, 100)
+            log = appendLog(log, {
+              text: `Veil Pressure changes by ${choice.repeatPenalty.pressureDelta} for the repeated action.`,
+              type: choice.repeatPenalty.pressureDelta > 0 ? 'danger' : 'system',
+              turn: nextTurn,
+            })
+          }
+        }
+
+
         if (vitality <= 0) {
           set(finishFailedRun(state, nextTurn, xp, level, maxVitality, maxFocus, maxLantern, discoveredScenes, archiveRelics, state.completedRuns, 'Your strength fails before the move is even made. The waste takes the rest.'))
+          return
+        }
+
+        if (focus <= 0) {
+          set(finishFailedRun(state, nextTurn, xp, level, maxVitality, maxFocus, maxLantern, discoveredScenes, archiveRelics, state.completedRuns, 'Your mind frays under the strain and the Veil slips its hold.'))
           return
         }
 
@@ -183,7 +332,32 @@ export const useGameStore = create<GameState>()(
         }
 
         const outcome = pickOutcome(choice)
+        if (state.currentSceneId === 'ashfall_archive' && outcome.nextSceneId && outcome.nextSceneId !== 'ashfall_archive' && state.runStatus === 'hub') {
+          runStartXp = state.xp
+          runStartArchiveCount = state.archiveRelics.length
+          runStartDiscoveredCount = state.discoveredScenes.length
+        }
+        choiceUseCounts[choice.id] = choiceCount + 1
         log = appendLog(log, { text: outcome.text, type: outcome.type, turn: nextTurn })
+
+        if (inventory.includes('brass_locator') && choice.intent === 'search') {
+          xpBonusFromPassives += 3
+          log = appendLog(log, {
+            text: 'The Brass Locator sharpens your search, guiding small chances toward treasure.',
+            type: 'reward',
+            turn: nextTurn,
+          })
+        }
+
+        if (inventory.includes('whisper_thread') && choice.intent === 'listen') {
+          xpBonusFromPassives += 4
+          veilPressure = clamp(veilPressure + 6, 0, 100)
+          log = appendLog(log, {
+            text: 'Whisper Thread heightens the Veil; the reward is clearer, but the pressure climbs.',
+            type: 'danger',
+            turn: nextTurn,
+          })
+        }
 
         if (outcome.statDelta) {
           vitality = clamp(vitality + (outcome.statDelta.vitality ?? 0), 0, maxVitality)
@@ -209,10 +383,21 @@ export const useGameStore = create<GameState>()(
         }
 
         if (outcome.xp) {
-          const gainedXp = randomBetween(outcome.xp[0], outcome.xp[1])
+          const baseXp = randomBetween(outcome.xp[0], outcome.xp[1])
+          const factor = choiceCount > 0 && choice.repeatPenalty?.xpFactor !== undefined ? choice.repeatPenalty.xpFactor : 1
+          const gainedXp = Math.floor(baseXp * factor)
           xp += gainedXp
           log = appendLog(log, {
             text: `+${gainedXp} XP`,
+            type: 'reward',
+            turn: nextTurn,
+          })
+        }
+
+        if (xpBonusFromPassives > 0) {
+          xp += xpBonusFromPassives
+          log = appendLog(log, {
+            text: `+${xpBonusFromPassives} XP from passive equipment.`,
             type: 'reward',
             turn: nextTurn,
           })
@@ -342,7 +527,11 @@ export const useGameStore = create<GameState>()(
 
             const loadPenalty = inventory.length * 2
             const pressurePenalty = Math.max(0, veilPressure - 45)
-            const failChance = clamp((loadPenalty + pressurePenalty - stabiliser) / 120, 0, 0.75)
+            const hazardPenalty = state.runFlags.includes('disturbed_obelisk') || state.runFlags.includes('veil_noticed') ? 10 : 0
+            const locatorBonus = inventory.includes('brass_locator') ? 10 : 0
+            const studyBonus = state.runFlags.includes('gate_studied') ? 8 : 0
+            const attentiveBonus = state.runFlags.includes('veil_attentive') ? 6 : 0
+            const failChance = clamp((loadPenalty + pressurePenalty + hazardPenalty - stabiliser - locatorBonus - studyBonus - attentiveBonus) / 120, 0, 0.8)
 
             if (Math.random() < failChance) {
               set(
@@ -369,7 +558,17 @@ export const useGameStore = create<GameState>()(
 
           archiveRelics = dedupe([...archiveRelics, ...inventory])
           const recoveredCount = inventory.length
-          inventory = []
+          const recoveredRare = inventory.some((itemId) => ITEM_DEFS[itemId].rarity === 'rare' || ITEM_DEFS[itemId].rarity === 'mythic')
+          const objectiveResult = evaluateObjectives(state.objectives, recoveredCount, recoveredRare, discoveredScenes, veilPressure, state.completedRuns + 1)
+          xp += objectiveResult.bonusXp
+          if (objectiveResult.bonusXp > 0) {
+            log = appendLog(log, {
+              text: `Contract reward: +${objectiveResult.bonusXp} XP for completing mission objectives.`,
+              type: 'reward',
+              turn: nextTurn,
+            })
+          }
+
           const runCount = state.completedRuns + 1
           log = appendLog(log, {
             text:
@@ -394,8 +593,15 @@ export const useGameStore = create<GameState>()(
             archiveRelics,
             discoveredScenes: dedupe(discoveredScenes),
             runFlags: [],
+            choiceUseCounts: {},
             veilPressure: 0,
             completedRuns: runCount,
+            runStartXp,
+            runStartArchiveCount,
+            runStartDiscoveredCount,
+            runResultCause: 'Extraction complete.',
+            runResultNewObjectives: objectiveResult.completedObjectiveLabels,
+            objectives: objectiveResult.objectives,
             log,
             turn: nextTurn,
             runStatus: 'success',
@@ -424,7 +630,13 @@ export const useGameStore = create<GameState>()(
           archiveRelics,
           discoveredScenes: dedupe(discoveredScenes),
           runFlags,
+          choiceUseCounts,
           veilPressure,
+          runStartXp,
+          runStartArchiveCount,
+          runStartDiscoveredCount,
+          runResultCause: '',
+          runResultNewObjectives: [],
           log,
           turn: nextTurn,
           runStatus,
@@ -432,10 +644,64 @@ export const useGameStore = create<GameState>()(
         })
       },
 
+      useItem: (itemId) => {
+        set((current) => {
+          if (!current.inventory.includes(itemId)) {
+            return {
+              log: appendLog(current.log, {
+                text: 'You do not have that item to use.',
+                type: 'system',
+                turn: current.turn,
+              }),
+            }
+          }
+
+          const inventory = current.inventory.filter((id) => id !== itemId)
+          let vitality = current.vitality
+          let veilPressure = current.veilPressure
+          let log = appendLog(current.log, {
+            text: `You use ${ITEM_DEFS[itemId].name}.`,
+            type: 'reward',
+            turn: current.turn + 1,
+          })
+
+          if (itemId === 'ashwater_flask') {
+            vitality = clamp(vitality + 10, 0, current.maxVitality)
+            log = appendLog(log, {
+              text: 'Ashwater restores your strength enough to press on.',
+              type: 'system',
+              turn: current.turn + 1,
+            })
+          }
+
+          if (itemId === 'veil_salt') {
+            veilPressure = clamp(veilPressure - 20, 0, 100)
+            log = appendLog(log, {
+              text: 'Veil Salt steadies your mind and eases the pressure around you.',
+              type: 'system',
+              turn: current.turn + 1,
+            })
+          }
+
+          return {
+            inventory,
+            vitality,
+            veilPressure,
+            log,
+            turn: current.turn + 1,
+          }
+        })
+      },
       settleRun: () =>
         set((current) => ({
           ...current,
           runStatus: 'hub',
+          runResultCause: '',
+          runResultNewObjectives: [],
+          objectives: rotateObjectivesForArchive(current.objectives),
+          runStartXp: current.xp,
+          runStartArchiveCount: current.archiveRelics.length,
+          runStartDiscoveredCount: current.discoveredScenes.length,
         })),
 
       resetGame: () => set(createInitialState()),
@@ -456,8 +722,15 @@ export const useGameStore = create<GameState>()(
         archiveRelics: state.archiveRelics,
         discoveredScenes: state.discoveredScenes,
         runFlags: state.runFlags,
+        choiceUseCounts: state.choiceUseCounts,
         veilPressure: state.veilPressure,
         completedRuns: state.completedRuns,
+        runStartXp: state.runStartXp,
+        runStartArchiveCount: state.runStartArchiveCount,
+        runStartDiscoveredCount: state.runStartDiscoveredCount,
+        runResultCause: state.runResultCause,
+        runResultNewObjectives: state.runResultNewObjectives,
+        objectives: state.objectives,
         log: state.log,
         turn: state.turn,
         runStatus: state.runStatus,
@@ -505,6 +778,9 @@ function finishFailedRun(
     runFlags: [],
     veilPressure: 0,
     completedRuns,
+    choiceUseCounts: {},
+    runResultCause: failText,
+    runResultNewObjectives: [],
     log: appendLog(log, {
       text: 'Archive medicae records your return. The run is lost, but the memory of the route remains.',
       type: 'system',
@@ -516,8 +792,87 @@ function finishFailedRun(
   }
 }
 
-function appendLog(log: LogEntry[], entry: Omit<LogEntry, 'id'>) {
-  return [...log, { id: crypto.randomUUID(), ...entry }].slice(-MAX_LOG)
+function replaceCompletedObjectives(objectives: ObjectiveStatus[]) {
+  const activeIds = objectives.map((objective) => objective.id)
+  const available = OBJECTIVE_DEFS.filter((def) => !activeIds.includes(def.id))
+  return objectives.map((objective) => {
+    if (!objective.completed) return objective
+    const next = available.shift()
+    return next ? createObjective(next) : objective
+  })
+}
+
+function rotateObjectivesForArchive(objectives: ObjectiveStatus[]) {
+  const refreshed = replaceCompletedObjectives(objectives)
+  const activeIds = refreshed.map((objective) => objective.id)
+  const available = OBJECTIVE_DEFS.filter((def) => !activeIds.includes(def.id))
+  if (available.length === 0) return refreshed
+
+  const rotateIndex = refreshed.findIndex((objective) => !objective.completed && objective.progress === 0)
+  if (rotateIndex === -1) return refreshed
+
+  const nextObjective = createObjective(pickRandom(available))
+  const rotated = [...refreshed]
+  rotated[rotateIndex] = nextObjective
+  return rotated
+}
+
+function evaluateObjectives(
+  objectives: ObjectiveStatus[],
+  recoveredCount: number,
+  recoveredRare: boolean,
+  discoveredScenes: SceneId[],
+  veilPressure: number,
+  completedRuns: number,
+) {
+  let bonusXp = 0
+  const completedObjectiveLabels: string[] = []
+
+  const updated = objectives.map((objective) => {
+    if (objective.completed) return objective
+
+    let progress = objective.progress
+    let completed = false
+
+    if (objective.type === 'recoverRelics') {
+      progress = Math.min(objective.target, recoveredCount)
+      completed = progress >= objective.target
+    }
+
+    if (objective.type === 'returnRareRelic') {
+      progress = recoveredRare ? 1 : 0
+      completed = recoveredRare
+    }
+
+    if (objective.type === 'surviveHighPressure') {
+      progress = veilPressure
+      completed = veilPressure >= objective.target
+    }
+
+    if (objective.type === 'discoverScene' && objective.sceneId) {
+      progress = discoveredScenes.includes(objective.sceneId) ? 1 : 0
+      completed = progress >= 1
+    }
+
+    if (objective.type === 'successfulRuns') {
+      progress = completedRuns
+      completed = progress >= objective.target
+    }
+
+    if (!objective.completed && completed) {
+      bonusXp += objective.rewardXp
+      completedObjectiveLabels.push(objective.label)
+      return { ...objective, progress: objective.target, completed: true }
+    }
+
+    return { ...objective, progress }
+  })
+
+  return {
+    objectives: replaceCompletedObjectives(updated),
+    bonusXp,
+    completedObjectiveLabels,
+  }
 }
 
 function pickOutcome(choice: Choice): ChoiceOutcome {
@@ -534,6 +889,10 @@ function pickOutcome(choice: Choice): ChoiceOutcome {
 
 function randomBetween(min: number, max: number) {
   return Math.floor(Math.random() * (max - min + 1)) + min
+}
+
+function appendLog(log: LogEntry[], entry: Omit<LogEntry, 'id'>) {
+  return [...log, { id: crypto.randomUUID(), ...entry }].slice(-MAX_LOG)
 }
 
 function pickRandom<T>(items: T[]) {

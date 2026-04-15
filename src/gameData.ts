@@ -14,7 +14,7 @@ export interface ItemDef {
   id: string
   name: string
   rarity: ItemRarity
-  itemType: 'relic' | 'consumable' | 'attunable'
+  itemType: 'relic' | 'consumable' | 'passive'
   description: string
   effect: string
 }
@@ -32,6 +32,12 @@ export interface ChoiceRequirement {
   requiredItemIds?: string[]
   requiresFlags?: string[]
   forbiddenFlags?: string[]
+}
+
+export interface ChoiceRepeatPenalty {
+  xpFactor?: number
+  pressureDelta?: number
+  message?: string
 }
 
 export interface ChoiceOutcome {
@@ -56,6 +62,9 @@ export interface Choice {
   description: string
   cost?: StatsDelta
   requires?: ChoiceRequirement
+  pressure?: number
+  maxUses?: number
+  repeatPenalty?: ChoiceRepeatPenalty
   outcomes: ChoiceOutcome[]
 }
 
@@ -82,7 +91,7 @@ export const ITEM_DEFS: Record<string, ItemDef> = {
     id: 'whisper_thread',
     name: 'Whisper Thread',
     rarity: 'uncommon',
-    itemType: 'attunable',
+    itemType: 'passive',
     description: 'A silver fibre that hums when the Veil presses close.',
     effect: 'Field use: improves later listening and Veil-sense actions.',
   },
@@ -106,7 +115,7 @@ export const ITEM_DEFS: Record<string, ItemDef> = {
     id: 'brass_locator',
     name: 'Brass Locator',
     rarity: 'rare',
-    itemType: 'attunable',
+    itemType: 'passive',
     description: 'A palm-sized dial that twitches toward worked stone under the dunes.',
     effect: 'Field use: reveals hidden caches and route shortcuts in later stages.',
   },
@@ -122,7 +131,7 @@ export const ITEM_DEFS: Record<string, ItemDef> = {
     id: 'hollow_reed_song',
     name: 'Hollow Reed Song',
     rarity: 'rare',
-    itemType: 'attunable',
+    itemType: 'passive',
     description: 'A scored brass strip that sings when breathed across the glyph cuts.',
     effect: 'Field use: unlocks a musical Name path in future archive research.',
   },
@@ -167,6 +176,11 @@ export const SCENES: Record<SceneId, SceneDef> = {
         label: 'Review the field ledger',
         intent: 'study',
         description: 'Skim prior recoveries, whispered annotations, and incomplete destination notes before the next run.',
+        maxUses: 2,
+        repeatPenalty: {
+          xpFactor: 0,
+          message: 'The ledger has nothing more to teach you right now. The page is spent.',
+        },
         outcomes: [
           {
             weight: 3,
@@ -189,6 +203,12 @@ export const SCENES: Record<SceneId, SceneDef> = {
         label: 'Steady hands at the brazier',
         intent: 'rest',
         description: 'Warm yourself beside the ash brazier and let your pulse slow before another crossing.',
+        maxUses: 1,
+        repeatPenalty: {
+          xpFactor: 0,
+          pressureDelta: 10,
+          message: 'The brazier is spent. Another rest here only summons the same old heat without new recovery.',
+        },
         outcomes: [
           {
             weight: 1,
@@ -234,6 +254,8 @@ export const SCENES: Record<SceneId, SceneDef> = {
         description: 'Follow the rotating glyph lattice and trace what little of the gate-language you have recovered.',
         requires: { minFocus: 8 },
         cost: { focus: -4 },
+        maxUses: 1,
+        pressure: 8,
         outcomes: [
           {
             weight: 3,
@@ -259,6 +281,13 @@ export const SCENES: Record<SceneId, SceneDef> = {
         label: 'Recenter beneath the ring',
         intent: 'rest',
         description: 'Keep your footing, breathe through the static, and stabilise your nerves before the crossing.',
+        maxUses: 1,
+        pressure: 2,
+        repeatPenalty: {
+          xpFactor: 0.25,
+          pressureDelta: 12,
+          message: 'The gate hums in a harsher key now. Another pause here only gives the Veil more time to watch you.',
+        },
         outcomes: [
           {
             weight: 1,
@@ -287,7 +316,8 @@ export const SCENES: Record<SceneId, SceneDef> = {
         label: 'Travel by the glass dune',
         intent: 'travel',
         description: 'Take the higher line where the wind cuts clearer paths across the fused ridge.',
-        cost: { vitality: -4, lantern: -5 },
+        cost: { vitality: -6, focus: -2, lantern: -6 },
+        pressure: 6,
         outcomes: [
           {
             weight: 1,
@@ -303,7 +333,8 @@ export const SCENES: Record<SceneId, SceneDef> = {
         label: 'Follow the buried markers',
         intent: 'search',
         description: 'Probe for the half-hidden waystones jutting from the dust and trust the older path.',
-        cost: { vitality: -5, focus: -3, lantern: -4 },
+        cost: { vitality: -6, focus: -4, lantern: -5 },
+        pressure: 8,
         outcomes: [
           {
             weight: 2,
@@ -326,8 +357,9 @@ export const SCENES: Record<SceneId, SceneDef> = {
         label: 'Trace the gate signal',
         intent: 'study',
         description: 'Use the glyph pattern from the gate to trace a cleaner route through the Waste.',
-        requires: { requiresFlags: ['gate_studied'], minFocus: 8 },
-        cost: { focus: -4, lantern: -3 },
+        requires: { requiresFlags: ['gate_studied'], minFocus: 10 },
+        cost: { focus: -6, lantern: -4 },
+        pressure: 6,
         outcomes: [
           {
             weight: 1,
@@ -402,7 +434,8 @@ export const SCENES: Record<SceneId, SceneDef> = {
         intent: 'search',
         description: 'Drop below the crest and sift through the pockets where heavier relics settle.',
         requires: { openInventorySlot: true, forbiddenFlags: ['glass_basin_searched'] },
-        cost: { vitality: -5, lantern: -4 },
+        cost: { vitality: -7, focus: -2, lantern: -5 },
+        pressure: 10,
         outcomes: [
           {
             weight: 3,
@@ -432,7 +465,8 @@ export const SCENES: Record<SceneId, SceneDef> = {
         intent: 'search',
         description: 'Let the Brass Locator hum and lead you toward a seam the dust hides.',
         requires: { requiredItemIds: ['brass_locator'], openInventorySlot: true },
-        cost: { vitality: -4, lantern: -3 },
+        cost: { vitality: -6, focus: -2, lantern: -4 },
+        pressure: 8,
         outcomes: [
           {
             weight: 1,
@@ -450,7 +484,8 @@ export const SCENES: Record<SceneId, SceneDef> = {
         label: 'Climb the crestline',
         intent: 'travel',
         description: 'Take the higher ground and sight the black obelisk from the top of the glass swell.',
-        cost: { vitality: -4, focus: -2, lantern: -4 },
+        cost: { vitality: -6, focus: -3, lantern: -5 },
+        pressure: 6,
         outcomes: [
           {
             weight: 1,
@@ -466,6 +501,13 @@ export const SCENES: Record<SceneId, SceneDef> = {
         label: 'Shelter in the lee',
         intent: 'rest',
         description: 'Use the dune wall as cover and recover what strength the wind has not already taken.',
+        maxUses: 1,
+        pressure: 2,
+        repeatPenalty: {
+          xpFactor: 0,
+          pressureDelta: 12,
+          message: 'The lee has already given its shield. Staying longer only lets the wind learn your shape.',
+        },
         outcomes: [
           {
             weight: 3,
@@ -550,7 +592,8 @@ export const SCENES: Record<SceneId, SceneDef> = {
         intent: 'search',
         description: 'Work a tool into the offering seam and take something before the place decides you have overstayed.',
         requires: { openInventorySlot: true },
-        cost: { vitality: -6, lantern: -4 },
+        cost: { vitality: -8, focus: -3, lantern: -5 },
+        pressure: 10,
         outcomes: [
           {
             weight: 2,
@@ -558,6 +601,7 @@ export const SCENES: Record<SceneId, SceneDef> = {
             type: 'reward',
             xp: [18, 28],
             itemIds: ['hollow_reed_song'],
+            setFlags: ['disturbed_obelisk'],
           },
           {
             weight: 1,
@@ -565,6 +609,7 @@ export const SCENES: Record<SceneId, SceneDef> = {
             type: 'reward',
             xp: [16, 24],
             itemIds: ['veil_salt'],
+            setFlags: ['disturbed_obelisk'],
           },
         ],
       },
@@ -618,7 +663,8 @@ export const SCENES: Record<SceneId, SceneDef> = {
         intent: 'search',
         description: 'Open sealed lockers, probe hidden compartments, and accept that not all travellers leave honest inventories.',
         requires: { openInventorySlot: true },
-        cost: { vitality: -5, focus: -2, lantern: -4 },
+        cost: { vitality: -6, focus: -3, lantern: -5 },
+        pressure: 6,
         outcomes: [
           {
             weight: 2,
@@ -648,8 +694,9 @@ export const SCENES: Record<SceneId, SceneDef> = {
         label: 'Listen at the prayer mast',
         intent: 'listen',
         description: 'Rest a hand against the carved names and let the Veil tell you what the surviving dust refuses to say.',
-        requires: { minFocus: 10 },
-        cost: { focus: -5, lantern: -4 },
+        requires: { minFocus: 12 },
+        cost: { focus: -7, lantern: -5 },
+        pressure: 14,
         outcomes: [
           {
             weight: 2,
@@ -680,7 +727,8 @@ export const SCENES: Record<SceneId, SceneDef> = {
         intent: 'study',
         description: 'Inspect the central offering bowl and recover what symbols still survive under the dust.',
         requires: { openInventorySlot: true },
-        cost: { lantern: -3 },
+        cost: { focus: -2, lantern: -3 },
+        pressure: 5,
         outcomes: [
           {
             weight: 1,
@@ -725,7 +773,8 @@ export const SCENES: Record<SceneId, SceneDef> = {
         intent: 'extract',
         description: 'Commit to the return pulse, trust the anchor tone, and carry whatever you can through the narrowing window.',
         requires: { minLantern: 6 },
-        cost: { lantern: -6, focus: -3 },
+        cost: { vitality: -4, focus: -4, lantern: -6 },
+        pressure: 8,
         outcomes: [
           {
             weight: 1,
@@ -742,6 +791,13 @@ export const SCENES: Record<SceneId, SceneDef> = {
         intent: 'search',
         description: 'Take the risky final reach that ruins cautious runs and makes the good ones worth remembering.',
         requires: { openInventorySlot: true },
+        maxUses: 1,
+        pressure: 12,
+        repeatPenalty: {
+          xpFactor: 0,
+          pressureDelta: 10,
+          message: 'The last cache is gone. Lingering here only brings the Veil closer.',
+        },
         cost: { vitality: -6, lantern: -6, focus: -3 },
         outcomes: [
           {
@@ -766,6 +822,13 @@ export const SCENES: Record<SceneId, SceneDef> = {
         label: 'Regain your bearing',
         intent: 'rest',
         description: 'Plant the beacon, breathe through the static, and refuse to rush the return sequence.',
+        maxUses: 1,
+        pressure: -4,
+        repeatPenalty: {
+          xpFactor: 0.4,
+          pressureDelta: 12,
+          message: 'The beacon pulse is already set. Spending more time here only lets the Veil braid new threads through the route.',
+        },
         outcomes: [
           {
             weight: 1,

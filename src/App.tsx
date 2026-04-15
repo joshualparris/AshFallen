@@ -1,5 +1,5 @@
 import { AnimatePresence, motion } from 'framer-motion'
-import { useMemo } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { SCENES, ITEM_DEFS, type Choice, type ItemRarity, type LogType } from './gameData'
 import { totalXpRequiredForLevel, useGameStore } from './store'
 
@@ -16,12 +16,33 @@ const rarityClasses: Record<ItemRarity, string> = {
   mythic: 'text-amber-200 drop-shadow-[0_0_10px_rgba(245,158,11,0.45)]',
 }
 
+const rarityBorders: Record<ItemRarity, string> = {
+  common: 'border-stone-700/70',
+  uncommon: 'border-emerald-500/35',
+  rare: 'border-sky-500/40',
+  mythic: 'border-amber-400/45',
+}
+
 const logClasses: Record<LogType, string> = {
   narrative: 'border-stone-500/30 bg-stone-950/60 text-stone-100',
   action: 'border-cyan-500/25 bg-cyan-950/20 text-cyan-100',
   reward: 'border-amber-500/35 bg-amber-950/20 text-amber-100',
   danger: 'border-red-500/35 bg-red-950/20 text-red-100',
   system: 'border-stone-400/20 bg-stone-900/60 text-stone-300',
+}
+
+const logIcons: Record<LogType, string> = {
+  narrative: '✦',
+  action: '➤',
+  reward: '+',
+  danger: '!',
+  system: '•',
+}
+
+const itemTypeIcons: Record<'relic' | 'consumable' | 'passive', string> = {
+  relic: '◇',
+  consumable: '◉',
+  passive: '◌',
 }
 
 function App() {
@@ -39,25 +60,83 @@ function App() {
     archiveRelics,
     discoveredScenes,
     runFlags,
+    choiceUseCounts,
+    runResultCause,
+    runResultNewObjectives,
+    objectives,
     log,
     turn,
     runStatus,
     veilPressure,
     completedRuns,
+    runStartXp,
+    runStartArchiveCount,
+    runStartDiscoveredCount,
     lastLevelUpAt,
     performChoice,
+    useItem,
     settleRun,
     resetGame,
   } = useGameStore()
 
   const scene = SCENES[currentSceneId]
-  const reversedLog = useMemo(() => [...log].reverse(), [log])
   const previousThreshold = totalXpRequiredForLevel(level)
   const nextThreshold = totalXpRequiredForLevel(level + 1)
   const progress = Math.max(0, Math.min(100, ((xp - previousThreshold) / (nextThreshold - previousThreshold)) * 100))
+  const [fontScale, setFontScale] = useState(1)
+  const [dyslexicFont, setDyslexicFont] = useState(false)
+  const [toasts, setToasts] = useState<Array<{ id: string; message: string; type: 'reward' | 'danger' | 'system' }>>([])
+  const logContainerRef = useRef<HTMLDivElement | null>(null)
+  const firstScrollRef = useRef(true)
+
+  const runXpGain = Math.max(0, xp - runStartXp)
+  const recoveredThisRun = Math.max(0, archiveRelics.length - runStartArchiveCount)
+  const discoveredThisRun = Math.max(0, discoveredScenes.length - runStartDiscoveredCount)
+  const fontSize = `${Math.max(0.9, Math.min(1.25, fontScale))}rem`
+
+  useEffect(() => {
+    if (!logContainerRef.current) return
+    if (firstScrollRef.current) {
+      firstScrollRef.current = false
+      logContainerRef.current.scrollTop = logContainerRef.current.scrollHeight
+      return
+    }
+    logContainerRef.current.scrollTo({ top: logContainerRef.current.scrollHeight, behavior: 'smooth' })
+  }, [log])
+
+  useEffect(() => {
+    if (log.length === 0) return
+    const lastEntry = log[log.length - 1]
+    const shouldToast =
+      lastEntry.type === 'reward' ||
+      lastEntry.type === 'danger' ||
+      (lastEntry.type === 'system' &&
+        (lastEntry.text.includes('XP') ||
+          lastEntry.text.includes('Recovered') ||
+          lastEntry.text.includes('Veil Pressure') ||
+          lastEntry.text.includes('restores') ||
+          lastEntry.text.includes('eases')))
+    if (shouldToast) {
+      const toast: { id: string; message: string; type: 'reward' | 'danger' | 'system' } = {
+        id: `${lastEntry.id}-${Date.now()}`,
+        message: lastEntry.text,
+        type: lastEntry.type === 'danger' ? 'danger' : lastEntry.type === 'reward' ? 'reward' : 'system',
+      }
+      setToasts((current) => [...current.slice(-2), toast])
+      window.setTimeout(() => {
+        setToasts((current) => current.filter((item) => item.id !== toast.id))
+      }, 2800)
+    }
+  }, [log])
 
   return (
-    <div className="min-h-screen bg-[radial-gradient(circle_at_top,_rgba(6,182,212,0.14),_transparent_30%),radial-gradient(circle_at_20%_20%,_rgba(239,68,68,0.12),_transparent_25%),linear-gradient(180deg,_#1b1410_0%,_#09090b_52%,_#050506_100%)] text-stone-100">
+    <div
+      style={{
+        fontSize,
+        fontFamily: dyslexicFont ? '"OpenDyslexic", "Atkinson Hyperlegible", "Trebuchet MS", sans-serif' : undefined,
+      }}
+      className="min-h-screen bg-[radial-gradient(circle_at_top,_rgba(6,182,212,0.14),_transparent_30%),radial-gradient(circle_at_20%_20%,_rgba(239,68,68,0.12),_transparent_25%),linear-gradient(180deg,_#1b1410_0%,_#09090b_52%,_#050506_100%)] text-stone-100"
+    >
       <div className="pointer-events-none fixed inset-0 opacity-40">
         <div className="absolute inset-0 bg-[linear-gradient(to_bottom,transparent_0%,rgba(255,255,255,0.035)_50%,transparent_100%)] bg-[length:100%_6px]" />
         <div className="absolute inset-0 bg-[radial-gradient(circle_at_center,_transparent_35%,rgba(0,0,0,0.45)_100%)]" />
@@ -82,6 +161,33 @@ function App() {
             <SummaryTile label="Runs" value={`${completedRuns}`} />
           </div>
           <div className="mt-3 grid grid-cols-1 gap-3 sm:grid-cols-2">
+            <div className="flex flex-wrap gap-2">
+              <button
+                type="button"
+                onClick={() => setFontScale((value) => Math.min(1.25, value + 0.1))}
+                className="rounded-2xl border border-cyan-400/20 bg-cyan-950/20 px-4 py-3 text-sm text-cyan-100 transition hover:border-cyan-300/45 hover:bg-cyan-900/30"
+              >
+                A+
+              </button>
+              <button
+                type="button"
+                onClick={() => setFontScale((value) => Math.max(0.9, value - 0.1))}
+                className="rounded-2xl border border-cyan-400/20 bg-cyan-950/20 px-4 py-3 text-sm text-cyan-100 transition hover:border-cyan-300/45 hover:bg-cyan-900/30"
+              >
+                A-
+              </button>
+              <button
+                type="button"
+                onClick={() => setDyslexicFont((value) => !value)}
+                className={`rounded-2xl border px-4 py-3 text-sm transition ${
+                  dyslexicFont
+                    ? 'border-amber-300/50 bg-amber-500/20 text-amber-100'
+                    : 'border-cyan-400/20 bg-cyan-950/20 text-cyan-100 hover:border-cyan-300/45 hover:bg-cyan-900/30'
+                }`}
+              >
+                Dyslexic Font
+              </button>
+            </div>
             <button
               type="button"
               onClick={resetGame}
@@ -96,39 +202,15 @@ function App() {
         <div className="grid flex-1 gap-6 xl:grid-cols-[minmax(0,1.65fr)_minmax(320px,0.85fr)]">
           <main className="flex min-h-[70vh] flex-col gap-6">
             {runStatus === 'success' || runStatus === 'failed' ? (
-              <section className="ornate-panel p-5 sm:p-6 sticky top-24 z-10 bg-stone-950/95 backdrop-blur">
-                <div className="flex flex-col gap-3 border-b border-amber-500/15 pb-4">
-                  <div>
-                    <p className="text-xs uppercase tracking-[0.3em] text-cyan-200/70">{runStatus === 'success' ? 'Return Sequence' : 'Failed Extraction'}</p>
-                    <h2 className="mt-2 font-serif text-3xl text-stone-50">{runStatus === 'success' ? 'Extraction Complete' : 'Veil Breach'}</h2>
-                  </div>
-                </div>
-
-                <p className="mt-5 max-w-4xl text-base leading-7 text-stone-200/95">
-                  {runStatus === 'success'
-                    ? 'The gate accepted your pulse. Salvage is safe in the archive and the return is written into the bunker ledger.'
-                    : 'The return snapped under pressure. The Archive holds your memory of the route, but not the relics this time.'}
-                </p>
-
-                <div className="mt-6 grid gap-3 sm:grid-cols-2">
-                  <div className="rounded-3xl border border-stone-700/60 bg-stone-950/60 p-5">
-                    <p className="text-xs uppercase tracking-[0.2em] text-stone-400">Run Result</p>
-                    <p className="mt-3 text-lg text-stone-100">{runStatusLabel(runStatus)}</p>
-                  </div>
-                  <div className="rounded-3xl border border-stone-700/60 bg-stone-950/60 p-5">
-                    <p className="text-xs uppercase tracking-[0.2em] text-stone-400">Pressure at Return</p>
-                    <p className="mt-3 text-lg text-stone-100">{veilPressure}%</p>
-                  </div>
-                </div>
-
-                <button
-                  type="button"
-                  onClick={settleRun}
-                  className="mt-6 inline-flex items-center justify-center rounded-3xl border border-amber-500/30 bg-amber-500/10 px-6 py-3 text-sm font-semibold text-amber-100 transition hover:bg-amber-500/20"
-                >
-                  Return to Archive
-                </button>
-              </section>
+              <RunEndPanel
+                runStatus={runStatus}
+                runResultCause={runResultCause}
+                runXpGain={runXpGain}
+                recoveredThisRun={recoveredThisRun}
+                discoveredThisRun={discoveredThisRun}
+                runResultNewObjectives={runResultNewObjectives}
+                onReturnToArchive={settleRun}
+              />
             ) : (
               <section className="ornate-panel p-5 sm:p-6 sticky top-20 z-10 bg-stone-950/95 backdrop-blur">
                 <div className="flex flex-col gap-3 border-b border-amber-500/15 pb-4 sm:flex-row sm:items-start sm:justify-between">
@@ -145,14 +227,18 @@ function App() {
                 <p className="mt-4 border-l border-amber-500/30 pl-4 text-sm italic leading-6 text-amber-100/75">{scene.flavour}</p>
 
                 <div className="mt-6 grid gap-3 lg:grid-cols-2">
-                  {scene.choices.map((choice) => (
-                    <ChoiceCard
-                      key={choice.id}
-                      choice={choice}
-                      disabled={!canUseChoice(choice, focus, lantern, inventory.length, inventory, runFlags)}
-                      onSelect={() => performChoice(choice.id)}
-                    />
-                  ))}
+                  {scene.choices.map((choice) => {
+                    const availability = getChoiceAvailability(choice, focus, lantern, inventory.length, inventory, runFlags, choiceUseCounts)
+                    return (
+                      <ChoiceCard
+                        key={choice.id}
+                        choice={choice}
+                        disabled={availability.disabled}
+                        disabledReason={availability.reason}
+                        onSelect={() => performChoice(choice.id)}
+                      />
+                    )
+                  })}
                 </div>
               </section>
             )}
@@ -166,12 +252,12 @@ function App() {
                   <p className="text-xs uppercase tracking-[0.3em] text-amber-200/70">Chronicle</p>
                   <h3 className="mt-1 font-serif text-2xl text-stone-50">Recent Events</h3>
                 </div>
-                <div className="text-xs uppercase tracking-[0.25em] text-stone-400">Newest first</div>
+                <div className="text-xs uppercase tracking-[0.25em] text-stone-400">Auto-scrolls to latest</div>
               </div>
 
-              <div className="mt-5 space-y-3">
+              <div ref={logContainerRef} className="mt-5 max-h-[42vh] space-y-3 overflow-y-auto pr-1">
                 <AnimatePresence initial={false}>
-                  {reversedLog.map((entry, index) => (
+                  {log.map((entry, index) => (
                     <motion.article
                       key={entry.id}
                       layout
@@ -180,11 +266,13 @@ function App() {
                       exit={{ opacity: 0, y: -10 }}
                       transition={{ duration: 0.28, ease: 'easeOut' }}
                       className={`rounded-2xl border px-4 py-3 ${logClasses[entry.type]} ${
-                        index === 0 ? 'shadow-[0_0_35px_rgba(34,211,238,0.09)] ring-1 ring-amber-300/20' : ''
+                        index === log.length - 1 ? 'shadow-[0_0_35px_rgba(34,211,238,0.09)] ring-1 ring-amber-300/20' : ''
                       }`}
                     >
                       <div className="mb-2 flex items-center justify-between gap-3 text-[11px] uppercase tracking-[0.24em] text-stone-400">
-                        <span>{entry.type}</span>
+                        <span>
+                          {logIcons[entry.type]} {entry.type}
+                        </span>
                         <span>Turn {entry.turn}</span>
                       </div>
                       <p className="text-sm leading-6 sm:text-[15px]">{entry.text}</p>
@@ -208,6 +296,7 @@ function App() {
                 <StatBar label="Vitality" value={vitality} max={maxVitality} accent={statAccent.vitality} />
                 <StatBar label="Focus" value={focus} max={maxFocus} accent={statAccent.focus} />
                 <StatBar label="Lantern Charge" value={lantern} max={maxLantern} accent={statAccent.lantern} />
+                <StatBar label="Veil Pressure" value={veilPressure} max={100} accent="from-fuchsia-500/90 to-rose-300/60" />
               </div>
 
               <div className="mt-6 rounded-3xl border border-cyan-400/15 bg-stone-950/70 p-4">
@@ -250,16 +339,31 @@ function App() {
                 ) : (
                   inventory.map((itemId, index) => {
                     const item = ITEM_DEFS[itemId]
+                    const canUse = item.itemType === 'consumable' && runStatus === 'expedition'
                     return (
-                      <div key={`${itemId}-${index}`} className="rounded-2xl border border-stone-700/70 bg-stone-950/65 p-4">
-                        <div className="flex items-start justify-between gap-3">
+                      <div key={`${itemId}-${index}`} className={`rounded-2xl border bg-stone-950/65 p-4 ${rarityBorders[item.rarity]}`}>
+                        <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
                           <div>
                             <h4 className={`font-medium ${rarityClasses[item.rarity]}`}>{item.name}</h4>
                             <p className="mt-1 text-sm text-stone-300">{item.description}</p>
                           </div>
-                          <span className={`text-xs uppercase tracking-[0.22em] ${rarityClasses[item.rarity]}`}>{item.rarity}</span>
+                          <div className="flex flex-wrap items-center gap-2">
+                            <span className="rounded-full border border-stone-600/50 bg-stone-900/70 px-3 py-1 text-[11px] uppercase tracking-[0.18em] text-stone-300">
+                              {itemTypeIcons[item.itemType]} {item.itemType}
+                            </span>
+                            <span className={`rounded-full px-3 py-1 text-[11px] uppercase tracking-[0.18em] ${rarityClasses[item.rarity]}`}>{item.rarity}</span>
+                          </div>
                         </div>
                         <p className="mt-3 text-xs uppercase tracking-[0.18em] text-stone-500">{item.effect}</p>
+                        {canUse && (
+                          <button
+                            type="button"
+                            onClick={() => useItem(itemId)}
+                            className="mt-4 inline-flex items-center justify-center rounded-2xl border border-emerald-400/25 bg-emerald-500/10 px-4 py-2 text-sm text-emerald-100 transition hover:bg-emerald-500/15"
+                          >
+                            Use
+                          </button>
+                        )}
                       </div>
                     )
                   })
@@ -310,8 +414,55 @@ function App() {
                 </div>
               </div>
             </section>
+
+            <section className="ornate-panel p-5">
+              <div className="border-b border-amber-500/15 pb-4">
+                <p className="text-xs uppercase tracking-[0.3em] text-amber-200/70">Contract Board</p>
+                <h3 className="mt-1 font-serif text-2xl text-stone-50">Active Objectives</h3>
+              </div>
+              <div className="mt-5 space-y-3">
+                {objectives.map((objective) => (
+                  <div
+                    key={objective.id}
+                    className={`rounded-2xl border px-4 py-4 ${objective.completed ? 'border-emerald-500/40 bg-emerald-950/30' : 'border-stone-700/60 bg-stone-950/60'}`}
+                  >
+                    <div className="flex items-center justify-between gap-3">
+                      <div>
+                        <h4 className="font-medium text-stone-100">{objective.label}</h4>
+                        <p className="mt-1 text-xs text-stone-400">{objective.detail}</p>
+                      </div>
+                      <span className={`text-xs uppercase tracking-[0.18em] ${objective.completed ? 'text-emerald-300' : 'text-stone-400'}`}>
+                        {objective.completed ? 'Complete' : `${Math.min(100, Math.round((objective.progress / objective.target) * 100))}%`}
+                      </span>
+                    </div>
+                    <p className="mt-3 text-xs uppercase tracking-[0.16em] text-stone-500">Reward: +{objective.rewardXp} XP</p>
+                  </div>
+                ))}
+              </div>
+            </section>
           </aside>
         </div>
+      </div>
+      <div className="pointer-events-none fixed bottom-4 right-4 z-50 flex w-full max-w-sm flex-col gap-2">
+        <AnimatePresence initial={false}>
+          {toasts.map((toast) => (
+            <motion.div
+              key={toast.id}
+              initial={{ opacity: 0, y: 8 }}
+              animate={{ opacity: 1, y: 0 }}
+              exit={{ opacity: 0, y: 6 }}
+              className={`rounded-2xl border px-4 py-3 text-sm shadow-[0_10px_30px_rgba(0,0,0,0.35)] ${
+                toast.type === 'reward'
+                  ? 'border-emerald-500/40 bg-emerald-950/85 text-emerald-100'
+                  : toast.type === 'danger'
+                    ? 'border-red-500/45 bg-red-950/85 text-red-100'
+                    : 'border-cyan-500/40 bg-cyan-950/85 text-cyan-100'
+              }`}
+            >
+              {toast.message}
+            </motion.div>
+          ))}
+        </AnimatePresence>
       </div>
     </div>
   )
@@ -323,6 +474,60 @@ function SummaryTile({ label, value }: { label: string; value: string }) {
       <div className="text-[11px] uppercase tracking-[0.24em] text-stone-400">{label}</div>
       <div className="mt-1 text-lg font-medium text-stone-100">{value}</div>
     </div>
+  )
+}
+
+function RunEndPanel({
+  runStatus,
+  runResultCause,
+  runXpGain,
+  recoveredThisRun,
+  discoveredThisRun,
+  runResultNewObjectives,
+  onReturnToArchive,
+}: {
+  runStatus: 'success' | 'failed'
+  runResultCause: string
+  runXpGain: number
+  recoveredThisRun: number
+  discoveredThisRun: number
+  runResultNewObjectives: string[]
+  onReturnToArchive: () => void
+}) {
+  return (
+    <section className="ornate-panel sticky top-24 z-10 bg-stone-950/95 p-5 backdrop-blur sm:p-6">
+      <div className="flex flex-col gap-3 border-b border-amber-500/15 pb-4">
+        <div>
+          <p className="text-xs uppercase tracking-[0.3em] text-cyan-200/70">{runStatus === 'success' ? 'Return Sequence' : 'Failed Extraction'}</p>
+          <h2 className="mt-2 font-serif text-3xl text-stone-50">{runStatus === 'success' ? 'Extraction Complete' : 'Veil Breach'}</h2>
+        </div>
+      </div>
+
+      <p className="mt-5 max-w-4xl text-base leading-7 text-stone-200/95">
+        {runStatus === 'success'
+          ? 'The gate accepted your pulse. Salvage is safe in the archive and the return is written into the bunker ledger.'
+          : 'The return snapped under pressure. The Archive holds your memory of the route, but not the relics this time.'}
+      </p>
+
+      <div className="mt-6 rounded-3xl border border-stone-700/60 bg-stone-950/60 p-5">
+        <p className="text-xs uppercase tracking-[0.2em] text-stone-400">Run Summary</p>
+        <p className="mt-3 text-sm leading-6 text-stone-200">Cause: {runResultCause || (runStatus === 'success' ? 'Extraction complete.' : 'Veil collapse')}</p>
+        <p className="mt-2 text-sm leading-6 text-stone-200">XP gained: {runXpGain}</p>
+        <p className="mt-2 text-sm leading-6 text-stone-200">Relics recovered: {recoveredThisRun}</p>
+        <p className="mt-2 text-sm leading-6 text-stone-200">New discoveries: {discoveredThisRun}</p>
+        {runResultNewObjectives.length > 0 && (
+          <p className="mt-3 text-sm leading-6 text-emerald-300">Contracts completed: {runResultNewObjectives.join(', ')}</p>
+        )}
+      </div>
+
+      <button
+        type="button"
+        onClick={onReturnToArchive}
+        className="mt-6 inline-flex items-center justify-center rounded-3xl border border-amber-500/30 bg-amber-500/10 px-6 py-3 text-sm font-semibold text-amber-100 transition hover:bg-amber-500/20"
+      >
+        Return to Archive
+      </button>
+    </section>
   )
 }
 
@@ -361,10 +566,12 @@ function StatBar({
 function ChoiceCard({
   choice,
   disabled,
+  disabledReason,
   onSelect,
 }: {
   choice: Choice
   disabled: boolean
+  disabledReason?: string
   onSelect: () => void
 }) {
   return (
@@ -392,6 +599,9 @@ function ChoiceCard({
           {choice.requires.openInventorySlot ? ' one free slot' : ''}
         </p>
       )}
+      {disabled && disabledReason && (
+        <p className="mt-3 text-xs uppercase tracking-[0.18em] text-stone-400">{disabledReason}</p>
+      )}
     </button>
   )
 }
@@ -404,15 +614,28 @@ function EmptyState({ text, compact = false }: { text: string; compact?: boolean
   )
 }
 
-function canUseChoice(choice: Choice, focus: number, lantern: number, inventoryCount: number, inventory: string[], runFlags: string[]) {
-  if (!choice.requires) return true
-  if (choice.requires.minFocus && focus < choice.requires.minFocus) return false
-  if (choice.requires.minLantern && lantern < choice.requires.minLantern) return false
-  if (choice.requires.openInventorySlot && inventoryCount >= 6) return false
-  if (choice.requires.requiredItemIds && !choice.requires.requiredItemIds.every((itemId) => inventory.includes(itemId))) return false
-  if (choice.requires.requiresFlags && !choice.requires.requiresFlags.every((flag) => runFlags.includes(flag))) return false
-  if (choice.requires.forbiddenFlags && choice.requires.forbiddenFlags.some((flag) => runFlags.includes(flag))) return false
-  return true
+function getChoiceAvailability(
+  choice: Choice,
+  focus: number,
+  lantern: number,
+  inventoryCount: number,
+  inventory: string[],
+  runFlags: string[],
+  choiceUseCounts: Record<string, number>,
+) {
+  const choiceCount = choiceUseCounts[choice.id] ?? 0
+  if (choice.maxUses !== undefined && choiceCount >= choice.maxUses) {
+    return { disabled: true, reason: 'Choice depleted this run' }
+  }
+
+  if (!choice.requires) return { disabled: false, reason: undefined }
+  if (choice.requires.minFocus && focus < choice.requires.minFocus) return { disabled: true, reason: `Requires focus ${choice.requires.minFocus}` }
+  if (choice.requires.minLantern && lantern < choice.requires.minLantern) return { disabled: true, reason: `Requires lantern ${choice.requires.minLantern}` }
+  if (choice.requires.openInventorySlot && inventoryCount >= 6) return { disabled: true, reason: 'Requires one free slot' }
+  if (choice.requires.requiredItemIds && !choice.requires.requiredItemIds.every((itemId) => inventory.includes(itemId))) return { disabled: true, reason: 'Requires specific item' }
+  if (choice.requires.requiresFlags && !choice.requires.requiresFlags.every((flag) => runFlags.includes(flag))) return { disabled: true, reason: 'Requires prior run condition' }
+  if (choice.requires.forbiddenFlags && choice.requires.forbiddenFlags.some((flag) => runFlags.includes(flag))) return { disabled: true, reason: 'Blocked by current run state' }
+  return { disabled: false, reason: undefined }
 }
 
 function formatCosts(choice: Choice) {
