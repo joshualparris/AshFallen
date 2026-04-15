@@ -14,6 +14,8 @@ export interface ItemDef {
   id: string
   name: string
   rarity: ItemRarity
+  /** Same as `itemType`; kept for readability in data. */
+  type: 'relic' | 'consumable' | 'passive'
   itemType: 'relic' | 'consumable' | 'passive'
   description: string
   effect: string
@@ -83,6 +85,7 @@ export const ITEM_DEFS: Record<string, ItemDef> = {
     id: 'dustglass_shard',
     name: 'Dustglass Shard',
     rarity: 'common',
+    type: 'relic',
     itemType: 'relic',
     description: 'A red-gold splinter from a dune fused by old heat and stranger light.',
     effect: 'Field use: sold, studied, or used later to trace buried heat fractures.',
@@ -91,6 +94,7 @@ export const ITEM_DEFS: Record<string, ItemDef> = {
     id: 'whisper_thread',
     name: 'Whisper Thread',
     rarity: 'uncommon',
+    type: 'passive',
     itemType: 'passive',
     description: 'A silver fibre that hums when the Veil presses close.',
     effect: 'Field use: improves later listening and Veil-sense actions.',
@@ -99,6 +103,7 @@ export const ITEM_DEFS: Record<string, ItemDef> = {
     id: 'old_gate_coin',
     name: 'Old Gate Coin',
     rarity: 'common',
+    type: 'relic',
     itemType: 'relic',
     description: 'Stamped with a ringed star and worn smooth by fingers long dead.',
     effect: 'Field use: hints at route logic and hidden gate traditions.',
@@ -107,6 +112,7 @@ export const ITEM_DEFS: Record<string, ItemDef> = {
     id: 'ashwater_flask',
     name: 'Ashwater Flask',
     rarity: 'common',
+    type: 'consumable',
     itemType: 'consumable',
     description: 'A clay flask sealed with pitch, still cool despite the waste.',
     effect: 'Field use: restore vitality after a taxing choice.',
@@ -115,6 +121,7 @@ export const ITEM_DEFS: Record<string, ItemDef> = {
     id: 'brass_locator',
     name: 'Brass Locator',
     rarity: 'rare',
+    type: 'passive',
     itemType: 'passive',
     description: 'A palm-sized dial that twitches toward worked stone under the dunes.',
     effect: 'Field use: reveals hidden caches and route shortcuts in later stages.',
@@ -123,6 +130,7 @@ export const ITEM_DEFS: Record<string, ItemDef> = {
     id: 'veil_salt',
     name: 'Veil Salt',
     rarity: 'uncommon',
+    type: 'consumable',
     itemType: 'consumable',
     description: 'Grey crystals packed in wax paper to steady the mind against whispers.',
     effect: 'Field use: resists Veil distortion and mental attrition.',
@@ -131,6 +139,7 @@ export const ITEM_DEFS: Record<string, ItemDef> = {
     id: 'hollow_reed_song',
     name: 'Hollow Reed Song',
     rarity: 'rare',
+    type: 'passive',
     itemType: 'passive',
     description: 'A scored brass strip that sings when breathed across the glyph cuts.',
     effect: 'Field use: unlocks a musical Name path in future archive research.',
@@ -139,6 +148,7 @@ export const ITEM_DEFS: Record<string, ItemDef> = {
     id: 'fragment_of_true_name',
     name: 'Fragment of a True Name',
     rarity: 'mythic',
+    type: 'relic',
     itemType: 'relic',
     description: 'Not quite text, not quite sound; it settles in the memory like warm ash.',
     effect: 'Field use: a mythic archive key for later attunement and Veiled paths.',
@@ -176,9 +186,10 @@ export const SCENES: Record<SceneId, SceneDef> = {
         label: 'Review the field ledger',
         intent: 'study',
         description: 'Skim prior recoveries, whispered annotations, and incomplete destination notes before the next run.',
-        maxUses: 2,
+        maxUses: 1,
         repeatPenalty: {
           xpFactor: 0,
+          pressureDelta: 8,
           message: 'The ledger has nothing more to teach you right now. The page is spent.',
         },
         outcomes: [
@@ -215,7 +226,7 @@ export const SCENES: Record<SceneId, SceneDef> = {
             text: 'The brazier burns with smokeless coals. Heat settles your lungs, and the ring-hum beyond the wall becomes easier to bear.',
             type: 'system',
             xp: [4, 8],
-            statDelta: { vitality: 6, focus: 6, lantern: 4 },
+            statDelta: { vitality: 4, focus: 4, lantern: 3 },
           },
         ],
       },
@@ -236,7 +247,7 @@ export const SCENES: Record<SceneId, SceneDef> = {
         label: 'Commit to the Red Waste code',
         intent: 'travel',
         description: 'Lock the destination string, tighten your satchel, and step through before the sequence drifts.',
-        cost: { lantern: -8, focus: -2 },
+        cost: { lantern: -8, focus: -3, vitality: -3 },
         outcomes: [
           {
             weight: 1,
@@ -253,7 +264,7 @@ export const SCENES: Record<SceneId, SceneDef> = {
         intent: 'study',
         description: 'Follow the rotating glyph lattice and trace what little of the gate-language you have recovered.',
         requires: { minFocus: 8 },
-        cost: { focus: -4 },
+        cost: { focus: -5, vitality: -2 },
         maxUses: 1,
         pressure: 8,
         outcomes: [
@@ -316,7 +327,7 @@ export const SCENES: Record<SceneId, SceneDef> = {
         label: 'Travel by the glass dune',
         intent: 'travel',
         description: 'Take the higher line where the wind cuts clearer paths across the fused ridge.',
-        cost: { vitality: -6, focus: -2, lantern: -6 },
+        cost: { vitality: -9, focus: -3, lantern: -6 },
         pressure: 6,
         outcomes: [
           {
@@ -333,7 +344,7 @@ export const SCENES: Record<SceneId, SceneDef> = {
         label: 'Follow the buried markers',
         intent: 'search',
         description: 'Probe for the half-hidden waystones jutting from the dust and trust the older path.',
-        cost: { vitality: -6, focus: -4, lantern: -5 },
+        cost: { vitality: -9, focus: -5, lantern: -5 },
         pressure: 8,
         outcomes: [
           {
@@ -358,7 +369,7 @@ export const SCENES: Record<SceneId, SceneDef> = {
         intent: 'study',
         description: 'Use the glyph pattern from the gate to trace a cleaner route through the Waste.',
         requires: { requiresFlags: ['gate_studied'], minFocus: 10 },
-        cost: { focus: -6, lantern: -4 },
+        cost: { focus: -7, lantern: -4, vitality: -3 },
         pressure: 6,
         outcomes: [
           {
@@ -377,7 +388,7 @@ export const SCENES: Record<SceneId, SceneDef> = {
         intent: 'listen',
         description: 'Still yourself and feel for the hidden layer under heat and wind, where lies and revelations sound alike.',
         requires: { minFocus: 10 },
-        cost: { focus: -5, lantern: -3 },
+        cost: { focus: -6, lantern: -4, vitality: -4 },
         outcomes: [
           {
             weight: 2,
@@ -434,7 +445,7 @@ export const SCENES: Record<SceneId, SceneDef> = {
         intent: 'search',
         description: 'Drop below the crest and sift through the pockets where heavier relics settle.',
         requires: { openInventorySlot: true, forbiddenFlags: ['glass_basin_searched'] },
-        cost: { vitality: -7, focus: -2, lantern: -5 },
+        cost: { vitality: -10, focus: -3, lantern: -5 },
         pressure: 10,
         outcomes: [
           {
@@ -465,7 +476,7 @@ export const SCENES: Record<SceneId, SceneDef> = {
         intent: 'search',
         description: 'Let the Brass Locator hum and lead you toward a seam the dust hides.',
         requires: { requiredItemIds: ['brass_locator'], openInventorySlot: true },
-        cost: { vitality: -6, focus: -2, lantern: -4 },
+        cost: { vitality: -9, focus: -3, lantern: -4 },
         pressure: 8,
         outcomes: [
           {
@@ -484,7 +495,7 @@ export const SCENES: Record<SceneId, SceneDef> = {
         label: 'Climb the crestline',
         intent: 'travel',
         description: 'Take the higher ground and sight the black obelisk from the top of the glass swell.',
-        cost: { vitality: -6, focus: -3, lantern: -5 },
+        cost: { vitality: -9, focus: -3, lantern: -5 },
         pressure: 6,
         outcomes: [
           {
@@ -514,7 +525,7 @@ export const SCENES: Record<SceneId, SceneDef> = {
             text: 'The lee side holds a little shade and less noise. You drink slowly and let your pulse stop racing the lantern.',
             type: 'system',
             xp: [8, 12],
-            statDelta: { vitality: 8, focus: 4 },
+            statDelta: { vitality: 5, focus: 3 },
             pressureDelta: -10,
           },
           {
@@ -522,7 +533,7 @@ export const SCENES: Record<SceneId, SceneDef> = {
             text: 'In the quiet pocket behind the dune, you find a sealed flask cached beneath a cairn of fused pebbles.',
             type: 'reward',
             xp: [10, 16],
-            statDelta: { vitality: 4 },
+            statDelta: { vitality: 3 },
             itemIds: ['ashwater_flask'],
             pressureDelta: -8,
           },
@@ -562,7 +573,7 @@ export const SCENES: Record<SceneId, SceneDef> = {
         intent: 'study',
         description: 'Read the cuts as language rather than decoration and risk understanding more than is safe.',
         requires: { minFocus: 12 },
-        cost: { focus: -6, lantern: -4 },
+        cost: { focus: -8, lantern: -5, vitality: -2 },
         outcomes: [
           {
             weight: 2,
@@ -592,7 +603,7 @@ export const SCENES: Record<SceneId, SceneDef> = {
         intent: 'search',
         description: 'Work a tool into the offering seam and take something before the place decides you have overstayed.',
         requires: { openInventorySlot: true },
-        cost: { vitality: -8, focus: -3, lantern: -5 },
+        cost: { vitality: -11, focus: -4, lantern: -5 },
         pressure: 10,
         outcomes: [
           {
@@ -618,7 +629,7 @@ export const SCENES: Record<SceneId, SceneDef> = {
         label: 'Track the lee route to the caravan',
         intent: 'travel',
         description: 'Move while the marker shadows still point a coherent direction through the waste.',
-        cost: { vitality: -4, lantern: -5 },
+        cost: { vitality: -7, lantern: -5 },
         outcomes: [
           {
             weight: 1,
@@ -663,7 +674,7 @@ export const SCENES: Record<SceneId, SceneDef> = {
         intent: 'search',
         description: 'Open sealed lockers, probe hidden compartments, and accept that not all travellers leave honest inventories.',
         requires: { openInventorySlot: true },
-        cost: { vitality: -6, focus: -3, lantern: -5 },
+        cost: { vitality: -9, focus: -4, lantern: -5 },
         pressure: 6,
         outcomes: [
           {
@@ -695,7 +706,7 @@ export const SCENES: Record<SceneId, SceneDef> = {
         intent: 'listen',
         description: 'Rest a hand against the carved names and let the Veil tell you what the surviving dust refuses to say.',
         requires: { minFocus: 12 },
-        cost: { focus: -7, lantern: -5 },
+        cost: { focus: -8, lantern: -5, vitality: -3 },
         pressure: 14,
         outcomes: [
           {
@@ -727,7 +738,7 @@ export const SCENES: Record<SceneId, SceneDef> = {
         intent: 'study',
         description: 'Inspect the central offering bowl and recover what symbols still survive under the dust.',
         requires: { openInventorySlot: true },
-        cost: { focus: -2, lantern: -3 },
+        cost: { focus: -4, lantern: -3, vitality: -2 },
         pressure: 5,
         outcomes: [
           {
@@ -744,7 +755,7 @@ export const SCENES: Record<SceneId, SceneDef> = {
         label: 'Run for extraction',
         intent: 'extract',
         description: 'Leave the caravan circle and get back to the gate-beacon before memory and wind trade places.',
-        cost: { vitality: -3, lantern: -4 },
+        cost: { vitality: -9, lantern: -4 },
         outcomes: [
           {
             weight: 1,
@@ -773,7 +784,7 @@ export const SCENES: Record<SceneId, SceneDef> = {
         intent: 'extract',
         description: 'Commit to the return pulse, trust the anchor tone, and carry whatever you can through the narrowing window.',
         requires: { minLantern: 6 },
-        cost: { vitality: -4, focus: -4, lantern: -6 },
+        cost: { vitality: -6, focus: -5, lantern: -6 },
         pressure: 8,
         outcomes: [
           {
@@ -798,7 +809,7 @@ export const SCENES: Record<SceneId, SceneDef> = {
           pressureDelta: 10,
           message: 'The last cache is gone. Lingering here only brings the Veil closer.',
         },
-        cost: { vitality: -6, lantern: -6, focus: -3 },
+        cost: { vitality: -8, lantern: -6, focus: -4 },
         outcomes: [
           {
             weight: 2,
@@ -835,7 +846,7 @@ export const SCENES: Record<SceneId, SceneDef> = {
             text: 'You draw a slow breath and let the pulse line settle. The world stops splitting at the edges long enough for the way home to hold still.',
             type: 'system',
             xp: [6, 10],
-            statDelta: { focus: 6, lantern: 4 },
+            statDelta: { focus: 4, lantern: 3 },
             pressureDelta: -12,
           },
         ],

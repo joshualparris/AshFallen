@@ -1,7 +1,7 @@
 import { AnimatePresence, motion } from 'framer-motion'
 import { useEffect, useRef, useState } from 'react'
 import { SCENES, ITEM_DEFS, type Choice, type ItemRarity, type LogType } from './gameData'
-import { totalXpRequiredForLevel, useGameStore } from './store'
+import { getPressureTier, totalXpRequiredForLevel, useGameStore, type RunEndSnapshot } from './store'
 
 const statAccent: Record<'vitality' | 'focus' | 'lantern', string> = {
   vitality: 'from-red-500/75 to-red-300/50',
@@ -63,6 +63,7 @@ function App() {
     choiceUseCounts,
     runResultCause,
     runResultNewObjectives,
+    runEndSnapshot,
     objectives,
     log,
     turn,
@@ -87,7 +88,7 @@ function App() {
   const [dyslexicFont, setDyslexicFont] = useState(false)
   const [toasts, setToasts] = useState<Array<{ id: string; message: string; type: 'reward' | 'danger' | 'system' }>>([])
   const logContainerRef = useRef<HTMLDivElement | null>(null)
-  const firstScrollRef = useRef(true)
+  const logPinnedToBottomRef = useRef(true)
 
   const runXpGain = Math.max(0, xp - runStartXp)
   const recoveredThisRun = Math.max(0, archiveRelics.length - runStartArchiveCount)
@@ -95,14 +96,18 @@ function App() {
   const fontSize = `${Math.max(0.9, Math.min(1.25, fontScale))}rem`
 
   useEffect(() => {
-    if (!logContainerRef.current) return
-    if (firstScrollRef.current) {
-      firstScrollRef.current = false
-      logContainerRef.current.scrollTop = logContainerRef.current.scrollHeight
-      return
-    }
-    logContainerRef.current.scrollTo({ top: logContainerRef.current.scrollHeight, behavior: 'smooth' })
+    const el = logContainerRef.current
+    if (!el) return
+    if (!logPinnedToBottomRef.current) return
+    el.scrollTo({ top: el.scrollHeight, behavior: 'smooth' })
   }, [log])
+
+  const onLogScroll = () => {
+    const el = logContainerRef.current
+    if (!el) return
+    const nearBottom = el.scrollHeight - el.scrollTop - el.clientHeight < 48
+    logPinnedToBottomRef.current = nearBottom
+  }
 
   useEffect(() => {
     if (log.length === 0) return
@@ -156,7 +161,7 @@ function App() {
           <div className="grid grid-cols-2 gap-3 sm:grid-cols-5">
             <SummaryTile label="Run State" value={runStatusLabel(runStatus)} />
             <SummaryTile label="Turns" value={`${turn}`} />
-            <SummaryTile label="Veil Pressure" value={`${veilPressure}%`} />
+            <SummaryTile label="Veil Pressure" value={`${veilPressure}% (${pressureTierLabel(veilPressure)})`} />
             <SummaryTile label="Recovered" value={`${archiveRelics.length}`} />
             <SummaryTile label="Runs" value={`${completedRuns}`} />
           </div>
@@ -202,9 +207,10 @@ function App() {
         <div className="grid flex-1 gap-6 xl:grid-cols-[minmax(0,1.65fr)_minmax(320px,0.85fr)]">
           <main className="flex min-h-[70vh] flex-col gap-6">
             {runStatus === 'success' || runStatus === 'failed' ? (
-              <RunEndPanel
+              <RunSummary
                 runStatus={runStatus}
                 runResultCause={runResultCause}
+                snapshot={runEndSnapshot}
                 runXpGain={runXpGain}
                 recoveredThisRun={recoveredThisRun}
                 discoveredThisRun={discoveredThisRun}
@@ -213,6 +219,23 @@ function App() {
               />
             ) : (
               <section className="ornate-panel p-5 sm:p-6 sticky top-20 z-10 bg-stone-950/95 backdrop-blur">
+                {currentSceneId === 'ashfall_archive' && runStatus === 'hub' && (
+                  <div className="mb-6 rounded-3xl border border-amber-500/25 bg-stone-950/80 p-4">
+                    <p className="text-xs uppercase tracking-[0.28em] text-amber-200/80">Contract Board</p>
+                    <p className="mt-2 text-sm text-stone-300">Up to three active objectives. Rewards apply on successful extraction.</p>
+                    <div className="mt-3 grid gap-2 sm:grid-cols-3">
+                      {objectives.map((objective) => (
+                        <div
+                          key={objective.id}
+                          className={`rounded-2xl border px-3 py-3 text-sm ${objective.completed ? 'border-emerald-500/40 bg-emerald-950/25' : 'border-stone-700/60 bg-stone-900/50'}`}
+                        >
+                          <p className="font-medium text-stone-100">{objective.label}</p>
+                          <p className="mt-1 text-xs text-stone-500">+{objective.rewardXp} XP</p>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                )}
                 <div className="flex flex-col gap-3 border-b border-amber-500/15 pb-4 sm:flex-row sm:items-start sm:justify-between">
                   <div>
                     <p className="text-xs uppercase tracking-[0.3em] text-cyan-200/70">{scene.region}</p>
@@ -235,6 +258,7 @@ function App() {
                         choice={choice}
                         disabled={availability.disabled}
                         disabledReason={availability.reason}
+                        requirementHint={formatRequirementHint(choice)}
                         onSelect={() => performChoice(choice.id)}
                       />
                     )
@@ -246,8 +270,8 @@ function App() {
           </main>
 
           <aside className="flex flex-col gap-6">
-            <section className="ornate-panel sticky top-24 z-10 max-h-[60vh] overflow-y-auto p-5 sm:p-6">
-              <div className="flex items-center justify-between gap-4 border-b border-amber-500/15 pb-4">
+            <section className="ornate-panel sticky top-24 z-10 flex max-h-[min(70vh,560px)] flex-col p-5 sm:p-6">
+              <div className="flex shrink-0 items-center justify-between gap-4 border-b border-amber-500/15 pb-4">
                 <div>
                   <p className="text-xs uppercase tracking-[0.3em] text-amber-200/70">Chronicle</p>
                   <h3 className="mt-1 font-serif text-2xl text-stone-50">Recent Events</h3>
@@ -255,7 +279,11 @@ function App() {
                 <div className="text-xs uppercase tracking-[0.25em] text-stone-400">Auto-scrolls to latest</div>
               </div>
 
-              <div ref={logContainerRef} className="mt-5 max-h-[42vh] space-y-3 overflow-y-auto pr-1">
+              <div
+                ref={logContainerRef}
+                onScroll={onLogScroll}
+                className="mt-5 min-h-0 flex-1 space-y-3 overflow-y-auto pr-1"
+              >
                 <AnimatePresence initial={false}>
                   {log.map((entry, index) => (
                     <motion.article
@@ -339,7 +367,7 @@ function App() {
                 ) : (
                   inventory.map((itemId, index) => {
                     const item = ITEM_DEFS[itemId]
-                    const canUse = item.itemType === 'consumable' && runStatus === 'expedition'
+                    const canUse = item.itemType === 'consumable' && (runStatus === 'expedition' || runStatus === 'hub')
                     return (
                       <div key={`${itemId}-${index}`} className={`rounded-2xl border bg-stone-950/65 p-4 ${rarityBorders[item.rarity]}`}>
                         <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
@@ -477,9 +505,10 @@ function SummaryTile({ label, value }: { label: string; value: string }) {
   )
 }
 
-function RunEndPanel({
+function RunSummary({
   runStatus,
   runResultCause,
+  snapshot,
   runXpGain,
   recoveredThisRun,
   discoveredThisRun,
@@ -488,18 +517,28 @@ function RunEndPanel({
 }: {
   runStatus: 'success' | 'failed'
   runResultCause: string
+  snapshot: RunEndSnapshot | null
   runXpGain: number
   recoveredThisRun: number
   discoveredThisRun: number
   runResultNewObjectives: string[]
   onReturnToArchive: () => void
 }) {
+  const xp = snapshot?.xpGain ?? runXpGain
+  const pressure = snapshot?.pressure
+  const items = snapshot?.itemIds ?? []
+  const vit = snapshot?.vitality
+  const foc = snapshot?.focus
+  const lan = snapshot?.lantern
+  const label = snapshot?.resultLabel ?? (runStatus === 'success' ? 'Safe Extraction' : 'Broken Return')
+  const objectivesDone = snapshot?.objectivesDone ?? runResultNewObjectives
+
   return (
     <section className="ornate-panel sticky top-24 z-10 bg-stone-950/95 p-5 backdrop-blur sm:p-6">
       <div className="flex flex-col gap-3 border-b border-amber-500/15 pb-4">
         <div>
           <p className="text-xs uppercase tracking-[0.3em] text-cyan-200/70">{runStatus === 'success' ? 'Return Sequence' : 'Failed Extraction'}</p>
-          <h2 className="mt-2 font-serif text-3xl text-stone-50">{runStatus === 'success' ? 'Extraction Complete' : 'Veil Breach'}</h2>
+          <h2 className="mt-2 font-serif text-3xl text-stone-50">{label}</h2>
         </div>
       </div>
 
@@ -509,16 +548,31 @@ function RunEndPanel({
           : 'The return snapped under pressure. The Archive holds your memory of the route, but not the relics this time.'}
       </p>
 
-      <div className="mt-6 rounded-3xl border border-stone-700/60 bg-stone-950/60 p-5">
-        <p className="text-xs uppercase tracking-[0.2em] text-stone-400">Run Summary</p>
-        <p className="mt-3 text-sm leading-6 text-stone-200">Cause: {runResultCause || (runStatus === 'success' ? 'Extraction complete.' : 'Veil collapse')}</p>
-        <p className="mt-2 text-sm leading-6 text-stone-200">XP gained: {runXpGain}</p>
-        <p className="mt-2 text-sm leading-6 text-stone-200">Relics recovered: {recoveredThisRun}</p>
-        <p className="mt-2 text-sm leading-6 text-stone-200">New discoveries: {discoveredThisRun}</p>
-        {runResultNewObjectives.length > 0 && (
-          <p className="mt-3 text-sm leading-6 text-emerald-300">Contracts completed: {runResultNewObjectives.join(', ')}</p>
-        )}
+      <div className="mt-6 grid gap-3 sm:grid-cols-2">
+        <div className="rounded-3xl border border-stone-700/60 bg-stone-950/60 p-5">
+          <p className="text-xs uppercase tracking-[0.2em] text-stone-400">Outcome</p>
+          <p className="mt-3 text-sm leading-6 text-stone-200">Cause: {runResultCause || (runStatus === 'success' ? 'Extraction complete.' : 'Veil collapse')}</p>
+          <p className="mt-2 text-sm leading-6 text-stone-200">XP gained this run: {xp}</p>
+          {pressure !== undefined && <p className="mt-2 text-sm leading-6 text-stone-200">Veil Pressure at end: {pressure}%</p>}
+          {vit !== undefined && foc !== undefined && lan !== undefined && (
+            <p className="mt-2 text-sm leading-6 text-stone-200">
+              Stats at end: Vitality {vit} · Focus {foc} · Lantern {lan}
+            </p>
+          )}
+        </div>
+        <div className="rounded-3xl border border-stone-700/60 bg-stone-950/60 p-5">
+          <p className="text-xs uppercase tracking-[0.2em] text-stone-400">Salvage &amp; discovery</p>
+          <p className="mt-3 text-sm leading-6 text-stone-200">
+            Items in pack: {items.length > 0 ? items.map((id) => ITEM_DEFS[id]?.name ?? id).join(', ') : '—'}
+          </p>
+          <p className="mt-2 text-sm leading-6 text-stone-200">Relics recovered to archive (run): {recoveredThisRun}</p>
+          <p className="mt-2 text-sm leading-6 text-stone-200">New zone discoveries (run): {discoveredThisRun}</p>
+        </div>
       </div>
+
+      {objectivesDone.length > 0 && (
+        <p className="mt-4 text-sm leading-6 text-emerald-300">Contracts completed: {objectivesDone.join(', ')}</p>
+      )}
 
       <button
         type="button"
@@ -567,17 +621,20 @@ function ChoiceCard({
   choice,
   disabled,
   disabledReason,
+  requirementHint,
   onSelect,
 }: {
   choice: Choice
   disabled: boolean
   disabledReason?: string
+  requirementHint: string
   onSelect: () => void
 }) {
   return (
     <button
       type="button"
       disabled={disabled}
+      title={disabled ? disabledReason : undefined}
       onClick={onSelect}
       className="group rounded-[1.5rem] border border-amber-500/15 bg-[linear-gradient(180deg,rgba(41,37,36,0.92),rgba(12,10,9,0.96))] p-4 text-left transition hover:-translate-y-0.5 hover:border-amber-300/35 hover:shadow-[0_12px_30px_rgba(245,158,11,0.08)] disabled:cursor-not-allowed disabled:border-stone-700/60 disabled:bg-stone-900/65 disabled:opacity-55"
     >
@@ -591,13 +648,8 @@ function ChoiceCard({
         </div>
       </div>
       <p className="mt-3 text-sm leading-6 text-stone-300">{choice.description}</p>
-      {choice.requires && (
-        <p className="mt-3 text-xs uppercase tracking-[0.18em] text-amber-100/70">
-          Requires
-          {choice.requires.minFocus ? ` focus ${choice.requires.minFocus}` : ''}
-          {choice.requires.minLantern ? ` lantern ${choice.requires.minLantern}` : ''}
-          {choice.requires.openInventorySlot ? ' one free slot' : ''}
-        </p>
+      {requirementHint && (
+        <p className="mt-3 text-xs uppercase tracking-[0.18em] text-amber-100/80">{requirementHint}</p>
       )}
       {disabled && disabledReason && (
         <p className="mt-3 text-xs uppercase tracking-[0.18em] text-stone-400">{disabledReason}</p>
@@ -612,6 +664,30 @@ function EmptyState({ text, compact = false }: { text: string; compact?: boolean
       {text}
     </div>
   )
+}
+
+function pressureTierLabel(pressure: number) {
+  const tier = getPressureTier(pressure)
+  if (tier === 0) return 'calm'
+  if (tier === 1) return 'tense'
+  if (tier === 2) return 'torn'
+  return 'critical'
+}
+
+function formatRequirementHint(choice: Choice) {
+  const r = choice.requires
+  if (!r) return ''
+  const bits: string[] = []
+  if (r.minFocus) bits.push(`Focus ${r.minFocus}+`)
+  if (r.minLantern) bits.push(`Lantern ${r.minLantern}+`)
+  if (r.openInventorySlot) bits.push('a free satchel slot')
+  if (r.requiredItemIds?.length) {
+    bits.push(r.requiredItemIds.map((id) => ITEM_DEFS[id]?.name ?? id).join(' + '))
+  }
+  if (r.requiresFlags?.length) bits.push('prior run conditions')
+  if (r.forbiddenFlags?.length) bits.push('route state blocks this')
+  if (bits.length === 0) return ''
+  return `Requires: ${bits.join(' · ')}`
 }
 
 function getChoiceAvailability(
@@ -632,7 +708,10 @@ function getChoiceAvailability(
   if (choice.requires.minFocus && focus < choice.requires.minFocus) return { disabled: true, reason: `Requires focus ${choice.requires.minFocus}` }
   if (choice.requires.minLantern && lantern < choice.requires.minLantern) return { disabled: true, reason: `Requires lantern ${choice.requires.minLantern}` }
   if (choice.requires.openInventorySlot && inventoryCount >= 6) return { disabled: true, reason: 'Requires one free slot' }
-  if (choice.requires.requiredItemIds && !choice.requires.requiredItemIds.every((itemId) => inventory.includes(itemId))) return { disabled: true, reason: 'Requires specific item' }
+  if (choice.requires.requiredItemIds && !choice.requires.requiredItemIds.every((itemId) => inventory.includes(itemId))) {
+    const missing = choice.requires.requiredItemIds.filter((id) => !inventory.includes(id))
+    return { disabled: true, reason: `Missing: ${missing.map((id) => ITEM_DEFS[id]?.name ?? id).join(', ')}` }
+  }
   if (choice.requires.requiresFlags && !choice.requires.requiresFlags.every((flag) => runFlags.includes(flag))) return { disabled: true, reason: 'Requires prior run condition' }
   if (choice.requires.forbiddenFlags && choice.requires.forbiddenFlags.some((flag) => runFlags.includes(flag))) return { disabled: true, reason: 'Blocked by current run state' }
   return { disabled: false, reason: undefined }

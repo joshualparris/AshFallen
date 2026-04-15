@@ -2,6 +2,16 @@ import { create } from 'zustand'
 import { persist } from 'zustand/middleware'
 import { ITEM_DEFS, SCENES, type Choice, type ChoiceOutcome, type LogType, type SceneId } from './gameData'
 
+/** Ledger / brazier / gate recenter: only the first of these per hub visit grants XP; the rest are narrative-only. */
+const COMFORT_SAFE_GRIND_IDS = new Set(['archive_review_ledger', 'archive_steady_hands', 'threshold_recenter'])
+
+export function getPressureTier(veilPressure: number): 0 | 1 | 2 | 3 {
+  if (veilPressure >= 75) return 3
+  if (veilPressure >= 50) return 2
+  if (veilPressure >= 25) return 1
+  return 0
+}
+
 type RunStatus = 'hub' | 'expedition' | 'success' | 'failed'
 
 export interface LogEntry {
@@ -113,6 +123,10 @@ interface GameState {
   runStartDiscoveredCount: number
   runResultCause: string
   runResultNewObjectives: string[]
+  /** Snapshot for run-end UI (success or failure). */
+  runEndSnapshot: RunEndSnapshot | null
+  /** First comfort safe action this hub visit already granted its XP; further ledger/brazier/recenter yield no XP. */
+  runComfortXpConsumed: boolean
   objectives: ObjectiveStatus[]
   lastLevelUpAt: number
   performChoice: (choiceId: string) => void
@@ -123,6 +137,17 @@ interface GameState {
 
 const MAX_LOG = 18
 const MAX_INVENTORY = 6
+
+export interface RunEndSnapshot {
+  resultLabel: string
+  xpGain: number
+  itemIds: string[]
+  pressure: number
+  vitality: number
+  focus: number
+  lantern: number
+  objectivesDone: string[]
+}
 
 function createInitialState(): Omit<GameState, 'performChoice' | 'useItem' | 'resetGame' | 'settleRun'> {
   return {
@@ -147,6 +172,8 @@ function createInitialState(): Omit<GameState, 'performChoice' | 'useItem' | 're
     runStartDiscoveredCount: 1,
     runResultCause: '',
     runResultNewObjectives: [],
+    runEndSnapshot: null,
+    runComfortXpConsumed: false,
     objectives: generateInitialObjectives(),
     log: [
       {
@@ -269,6 +296,7 @@ export const useGameStore = create<GameState>()(
         let runFlags = [...state.runFlags]
         let veilPressure = state.veilPressure
         let choiceUseCounts = { ...state.choiceUseCounts }
+        let runComfortXpConsumed = state.runComfortXpConsumed
         let xpBonusFromPassives = 0
         let runStatus: RunStatus = currentSceneId === 'ashfall_archive' ? 'hub' : 'expedition'
         let runStartXp = state.runStartXp
@@ -317,17 +345,62 @@ export const useGameStore = create<GameState>()(
 
 
         if (vitality <= 0) {
-          set(finishFailedRun(state, nextTurn, xp, level, maxVitality, maxFocus, maxLantern, discoveredScenes, archiveRelics, state.completedRuns, 'Your strength fails before the move is even made. The waste takes the rest.'))
+          set(
+            finishFailedRun(
+              state,
+              nextTurn,
+              xp,
+              level,
+              maxVitality,
+              maxFocus,
+              maxLantern,
+              discoveredScenes,
+              archiveRelics,
+              state.completedRuns,
+              'Your strength fails before the move is even made. The waste takes the rest.',
+              buildEndSnapshot(state, xp, state.inventory, veilPressure, vitality, focus, lantern, 'Broken Return', []),
+            ),
+          )
           return
         }
 
         if (focus <= 0) {
-          set(finishFailedRun(state, nextTurn, xp, level, maxVitality, maxFocus, maxLantern, discoveredScenes, archiveRelics, state.completedRuns, 'Your mind frays under the strain and the Veil slips its hold.'))
+          set(
+            finishFailedRun(
+              state,
+              nextTurn,
+              xp,
+              level,
+              maxVitality,
+              maxFocus,
+              maxLantern,
+              discoveredScenes,
+              archiveRelics,
+              state.completedRuns,
+              'Your mind frays under the strain and the Veil slips its hold.',
+              buildEndSnapshot(state, xp, state.inventory, veilPressure, vitality, focus, lantern, 'Broken Return', []),
+            ),
+          )
           return
         }
 
         if (lantern <= 0) {
-          set(finishFailedRun(state, nextTurn, xp, level, maxVitality, maxFocus, maxLantern, discoveredScenes, archiveRelics, state.completedRuns, 'Your lantern dies mid-step. Without its warding glow, the Veil closes over you.'))
+          set(
+            finishFailedRun(
+              state,
+              nextTurn,
+              xp,
+              level,
+              maxVitality,
+              maxFocus,
+              maxLantern,
+              discoveredScenes,
+              archiveRelics,
+              state.completedRuns,
+              'Your lantern dies mid-step. Without its warding glow, the Veil closes over you.',
+              buildEndSnapshot(state, xp, state.inventory, veilPressure, vitality, focus, lantern, 'Broken Return', []),
+            ),
+          )
           return
         }
 
@@ -374,6 +447,54 @@ export const useGameStore = create<GameState>()(
           })
         }
 
+        if (state.currentSceneId !== 'ashfall_archive') {
+          const tier = getPressureTier(veilPressure)
+          if (tier >= 1 && (choice.intent === 'search' || choice.intent === 'study') && Math.random() < 0.18) {
+            const hazardRoll = Math.random()
+            if (hazardRoll < 0.34) {
+              vitality = clamp(vitality - 5, 0, maxVitality)
+              log = appendLog(log, {
+                text: 'Pressure makes the waste breathe wrong. Your body pays for the clarity you thought you had.',
+                type: 'danger',
+                turn: nextTurn,
+              })
+            } else if (hazardRoll < 0.67) {
+              focus = clamp(focus - 4, 0, maxFocus)
+              log = appendLog(log, {
+                text: 'A hallucination slides across your thoughts like a second pair of eyes. Focus frays.',
+                type: 'danger',
+                turn: nextTurn,
+              })
+            } else {
+              veilPressure = clamp(veilPressure + 8, 0, 100)
+              log = appendLog(log, {
+                text: 'The Veil answers your attention with static. Pressure climbs before you can close the thought.',
+                type: 'danger',
+                turn: nextTurn,
+              })
+            }
+          }
+          if (tier >= 3 && Math.random() < 0.12) {
+            set(
+              finishFailedRun(
+                { ...state, log },
+                nextTurn,
+                xp,
+                level,
+                maxVitality,
+                maxFocus,
+                maxLantern,
+                discoveredScenes,
+                archiveRelics,
+                state.completedRuns + 1,
+                'The Veil reaches through your own skull. You drop before the next step is real.',
+                buildEndSnapshot(state, xp, inventory, veilPressure, vitality, focus, lantern, 'Veil Breach', []),
+              ),
+            )
+            return
+          }
+        }
+
         if (outcome.setFlags) {
           runFlags = dedupe([...runFlags, ...outcome.setFlags])
         }
@@ -384,14 +505,28 @@ export const useGameStore = create<GameState>()(
 
         if (outcome.xp) {
           const baseXp = randomBetween(outcome.xp[0], outcome.xp[1])
-          const factor = choiceCount > 0 && choice.repeatPenalty?.xpFactor !== undefined ? choice.repeatPenalty.xpFactor : 1
+          let factor = choiceCount > 0 && choice.repeatPenalty?.xpFactor !== undefined ? choice.repeatPenalty.xpFactor : 1
+          if (COMFORT_SAFE_GRIND_IDS.has(choice.id) && runComfortXpConsumed) {
+            factor = 0
+          }
           const gainedXp = Math.floor(baseXp * factor)
-          xp += gainedXp
-          log = appendLog(log, {
-            text: `+${gainedXp} XP`,
-            type: 'reward',
-            turn: nextTurn,
-          })
+          if (gainedXp > 0) {
+            xp += gainedXp
+            log = appendLog(log, {
+              text: `+${gainedXp} XP`,
+              type: 'reward',
+              turn: nextTurn,
+            })
+          } else if (COMFORT_SAFE_GRIND_IDS.has(choice.id) && runComfortXpConsumed) {
+            log = appendLog(log, {
+              text: 'The comfort is familiar now. There is no fresh insight to reward—only habit.',
+              type: 'narrative',
+              turn: nextTurn,
+            })
+          }
+        }
+        if (COMFORT_SAFE_GRIND_IDS.has(choice.id)) {
+          runComfortXpConsumed = true
         }
 
         if (xpBonusFromPassives > 0) {
@@ -461,6 +596,30 @@ export const useGameStore = create<GameState>()(
               archiveRelics,
               state.completedRuns,
               'Pain buckles your legs before you can secure the return. The run breaks around you.',
+              buildEndSnapshot(state, xp, inventory, veilPressure, vitality, focus, lantern, 'Broken Return', []),
+            ),
+          )
+          return
+        }
+
+        if (focus <= 0) {
+          set(
+            finishFailedRun(
+              {
+                ...state,
+                log,
+              },
+              nextTurn,
+              xp,
+              level,
+              maxVitality,
+              maxFocus,
+              maxLantern,
+              discoveredScenes,
+              archiveRelics,
+              state.completedRuns,
+              'Your focus shatters mid-thought. The waste stops pretending to be navigable.',
+              buildEndSnapshot(state, xp, inventory, veilPressure, vitality, focus, lantern, 'Broken Return', []),
             ),
           )
           return
@@ -483,6 +642,7 @@ export const useGameStore = create<GameState>()(
               archiveRelics,
               state.completedRuns,
               'The lantern gutters out in hostile dark. Without that warding light, the way home stops existing.',
+              buildEndSnapshot(state, xp, inventory, veilPressure, vitality, focus, lantern, 'Broken Return', []),
             ),
           )
           return
@@ -505,6 +665,7 @@ export const useGameStore = create<GameState>()(
               archiveRelics,
               state.completedRuns + 1,
               'The Veil folds the landscape over you. You make it back only as a staggered survivor, empty-handed and changed.',
+              buildEndSnapshot(state, xp, inventory, veilPressure, vitality, focus, lantern, 'Veil Breach', []),
             ),
           )
           return
@@ -531,7 +692,21 @@ export const useGameStore = create<GameState>()(
             const locatorBonus = inventory.includes('brass_locator') ? 10 : 0
             const studyBonus = state.runFlags.includes('gate_studied') ? 8 : 0
             const attentiveBonus = state.runFlags.includes('veil_attentive') ? 6 : 0
-            const failChance = clamp((loadPenalty + pressurePenalty + hazardPenalty - stabiliser - locatorBonus - studyBonus - attentiveBonus) / 120, 0, 0.8)
+            const pressureTier = getPressureTier(veilPressure)
+            const tierFailBoost = pressureTier === 2 ? 0.14 : pressureTier === 3 ? 0.26 : 0
+            const failChance = clamp(
+              (loadPenalty + pressurePenalty + hazardPenalty - stabiliser - locatorBonus - studyBonus - attentiveBonus) / 120 + tierFailBoost,
+              0,
+              0.88,
+            )
+
+            if (pressureTier >= 2) {
+              log = appendLog(log, {
+                text: 'The return corridor feels thin; the Veil tears at the edges of your hearing.',
+                type: 'danger',
+                turn: nextTurn,
+              })
+            }
 
             if (Math.random() < failChance) {
               set(
@@ -550,6 +725,7 @@ export const useGameStore = create<GameState>()(
                   archiveRelics,
                   state.completedRuns + 1,
                   'The return pulse buckles. The gate snaps shut, and the Veil takes the route that was almost yours.',
+                  buildEndSnapshot(state, xp, inventory, veilPressure, vitality, focus, lantern, 'Failed Extraction', []),
                 ),
               )
               return
@@ -601,6 +777,18 @@ export const useGameStore = create<GameState>()(
             runStartDiscoveredCount,
             runResultCause: 'Extraction complete.',
             runResultNewObjectives: objectiveResult.completedObjectiveLabels,
+            runEndSnapshot: buildEndSnapshot(
+              state,
+              xp,
+              inventory,
+              veilPressure,
+              maxVitality,
+              maxFocus,
+              maxLantern,
+              'Safe Extraction',
+              objectiveResult.completedObjectiveLabels,
+            ),
+            runComfortXpConsumed: false,
             objectives: objectiveResult.objectives,
             log,
             turn: nextTurn,
@@ -637,6 +825,7 @@ export const useGameStore = create<GameState>()(
           runStartDiscoveredCount,
           runResultCause: '',
           runResultNewObjectives: [],
+          runComfortXpConsumed,
           log,
           turn: nextTurn,
           runStatus,
@@ -656,26 +845,39 @@ export const useGameStore = create<GameState>()(
             }
           }
 
+          const def = ITEM_DEFS[itemId]
+          if (def.itemType !== 'consumable') {
+            return {
+              log: appendLog(current.log, {
+                text: 'That item is not something you can use in the field like a ration.',
+                type: 'system',
+                turn: current.turn,
+              }),
+            }
+          }
+
           const inventory = current.inventory.filter((id) => id !== itemId)
           let vitality = current.vitality
+          let focus = current.focus
           let veilPressure = current.veilPressure
           let log = appendLog(current.log, {
-            text: `You use ${ITEM_DEFS[itemId].name}.`,
+            text: `You use ${def.name}.`,
             type: 'reward',
             turn: current.turn + 1,
           })
 
           if (itemId === 'ashwater_flask') {
             vitality = clamp(vitality + 10, 0, current.maxVitality)
+            focus = clamp(focus + 4, 0, current.maxFocus)
             log = appendLog(log, {
-              text: 'Ashwater restores your strength enough to press on.',
+              text: 'Ashwater restores your strength and steadies your thoughts enough to press on.',
               type: 'system',
               turn: current.turn + 1,
             })
           }
 
           if (itemId === 'veil_salt') {
-            veilPressure = clamp(veilPressure - 20, 0, 100)
+            veilPressure = clamp(veilPressure - 10, 0, 100)
             log = appendLog(log, {
               text: 'Veil Salt steadies your mind and eases the pressure around you.',
               type: 'system',
@@ -686,6 +888,7 @@ export const useGameStore = create<GameState>()(
           return {
             inventory,
             vitality,
+            focus,
             veilPressure,
             log,
             turn: current.turn + 1,
@@ -698,6 +901,8 @@ export const useGameStore = create<GameState>()(
           runStatus: 'hub',
           runResultCause: '',
           runResultNewObjectives: [],
+          runEndSnapshot: null,
+          runComfortXpConsumed: false,
           objectives: rotateObjectivesForArchive(current.objectives),
           runStartXp: current.xp,
           runStartArchiveCount: current.archiveRelics.length,
@@ -730,6 +935,8 @@ export const useGameStore = create<GameState>()(
         runStartDiscoveredCount: state.runStartDiscoveredCount,
         runResultCause: state.runResultCause,
         runResultNewObjectives: state.runResultNewObjectives,
+        runEndSnapshot: state.runEndSnapshot,
+        runComfortXpConsumed: state.runComfortXpConsumed,
         objectives: state.objectives,
         log: state.log,
         turn: state.turn,
@@ -739,6 +946,29 @@ export const useGameStore = create<GameState>()(
     },
   ),
 )
+
+function buildEndSnapshot(
+  state: Pick<GameState, 'runStartXp'>,
+  xp: number,
+  inventory: string[],
+  veilPressure: number,
+  vitality: number,
+  focus: number,
+  lantern: number,
+  resultLabel: string,
+  objectivesDone: string[],
+): RunEndSnapshot {
+  return {
+    resultLabel,
+    xpGain: Math.max(0, xp - state.runStartXp),
+    itemIds: [...inventory],
+    pressure: veilPressure,
+    vitality,
+    focus,
+    lantern,
+    objectivesDone,
+  }
+}
 
 function finishFailedRun(
   state: Pick<GameState, 'log'>,
@@ -752,6 +982,7 @@ function finishFailedRun(
   archiveRelics: string[],
   completedRuns: number,
   failText: string,
+  snapshot: RunEndSnapshot,
 ) {
   const log = appendLog(
     state.log,
@@ -781,6 +1012,8 @@ function finishFailedRun(
     choiceUseCounts: {},
     runResultCause: failText,
     runResultNewObjectives: [],
+    runEndSnapshot: snapshot,
+    runComfortXpConsumed: false,
     log: appendLog(log, {
       text: 'Archive medicae records your return. The run is lost, but the memory of the route remains.',
       type: 'system',

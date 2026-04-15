@@ -83,6 +83,17 @@ npm run preview
 - Improved event readability with auto-scrolling logs, event-type icons, clearer disabled-choice reasons, and toast feedback hooks.
 - Added accessibility controls for larger type and optional dyslexic-friendly font stack toggle.
 
+## Changelog (playtest follow-up)
+
+- **Comfort XP cap:** Only the first Archive ledger, brazier rest, or gate “Recenter” per run awards XP; further comfort actions yield narrative only (no XP) and the ledger is limited to one read per run.
+- **Pressure tiers:** At 25%+ / 50%+ / 75%+ Veil Pressure, search/study can suffer random strain, extraction failure chance increases, and at 75%+ there is a small chance per action of an immediate Veil breach.
+- **Consumables:** `Veil Salt` lowers pressure by 10; `Ashwater Flask` restores vitality and a little focus; consumables can be used in the Archive or in the field; non-consumables show a clear message if clicked.
+- **Run summary:** End-of-run panel shows result label, XP gained, pack contents, pressure and stats at resolution, and completed contracts.
+- **Contracts:** Archive hub shows a compact contract board above scene choices when you are at home.
+- **Log:** Chronicle panel uses a dedicated scroll region; auto-scroll follows new entries unless you scroll away from the bottom.
+- **Requirements:** Action cards show required items by name (e.g. Brass Locator); disabled buttons expose the reason via tooltip and on-card text.
+- **Balance:** Vitality and focus costs increased on travel, search, study, and extraction; rest actions restore less.
+
 ## Manual test checklist
 
 - [ ] Start a run, take 4-6 actions, and confirm `Veil Pressure` rises and stays meaningfully elevated unless reduced by specific effects.
@@ -95,3 +106,6 @@ npm run preview
 - [ ] Confirm Recent Events auto-scrolls to newest entries and displays event-type icons/tags clearly.
 - [ ] Check disabled choices for explicit reasons (insufficient stats, full inventory, missing flags/items, depleted choice).
 - [ ] Refresh the page and verify persistence still holds key progression/state data.
+- [ ] Confirm only the first comfort action (ledger, brazier, recenter) grants XP before the gate; repeat attempts show the “no fresh insight” line and no XP.
+- [ ] At high pressure, observe search/study strain messages, extraction tension text, and possible breach at 75%+.
+- [ ] Use Veil Salt and Ashwater from inventory in the Archive or expedition and verify stat/pressure changes.
