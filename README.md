@@ -91,6 +91,7 @@ npm run preview
 - **Run summary:** End-of-run panel shows result label, XP gained, pack contents, pressure and stats at resolution, and completed contracts.
 - **Contracts:** Archive hub shows a compact contract board above scene choices when you are at home.
 - **Log:** Chronicle panel uses a dedicated scroll region; auto-scroll follows new entries unless you scroll away from the bottom.
+- **Log follow control:** Scrolling back through the Chronicle pauses auto-follow and reveals a one-click **Jump to latest** control.
 - **Requirements:** Action cards show required items by name (e.g. Brass Locator); disabled buttons expose the reason via tooltip and on-card text.
 - **Balance:** Vitality and focus costs increased on travel, search, study, and extraction; rest actions restore less.
 

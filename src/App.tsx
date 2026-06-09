@@ -75,7 +75,7 @@ function App() {
     runStartDiscoveredCount,
     lastLevelUpAt,
     performChoice,
-    useItem,
+    useItem: consumeItem,
     settleRun,
     resetGame,
   } = useGameStore()
@@ -87,6 +87,7 @@ function App() {
   const [fontScale, setFontScale] = useState(1)
   const [dyslexicFont, setDyslexicFont] = useState(false)
   const [toasts, setToasts] = useState<Array<{ id: string; message: string; type: 'reward' | 'danger' | 'system' }>>([])
+  const [logPinnedToBottom, setLogPinnedToBottom] = useState(true)
   const logContainerRef = useRef<HTMLDivElement | null>(null)
   const logPinnedToBottomRef = useRef(true)
 
@@ -107,6 +108,15 @@ function App() {
     if (!el) return
     const nearBottom = el.scrollHeight - el.scrollTop - el.clientHeight < 48
     logPinnedToBottomRef.current = nearBottom
+    setLogPinnedToBottom(nearBottom)
+  }
+
+  const jumpToLatestLog = () => {
+    const el = logContainerRef.current
+    if (!el) return
+    logPinnedToBottomRef.current = true
+    setLogPinnedToBottom(true)
+    el.scrollTo({ top: el.scrollHeight, behavior: 'smooth' })
   }
 
   useEffect(() => {
@@ -276,7 +286,17 @@ function App() {
                   <p className="text-xs uppercase tracking-[0.3em] text-amber-200/70">Chronicle</p>
                   <h3 className="mt-1 font-serif text-2xl text-stone-50">Recent Events</h3>
                 </div>
-                <div className="text-xs uppercase tracking-[0.25em] text-stone-400">Auto-scrolls to latest</div>
+                {logPinnedToBottom ? (
+                  <div className="text-xs uppercase tracking-[0.25em] text-stone-400">Following latest</div>
+                ) : (
+                  <button
+                    type="button"
+                    onClick={jumpToLatestLog}
+                    className="rounded-full border border-cyan-400/25 bg-cyan-950/25 px-3 py-2 text-xs uppercase tracking-[0.2em] text-cyan-100 transition hover:border-cyan-300/50 hover:bg-cyan-900/35"
+                  >
+                    Jump to latest
+                  </button>
+                )}
               </div>
 
               <div
@@ -386,7 +406,7 @@ function App() {
                         {canUse && (
                           <button
                             type="button"
-                            onClick={() => useItem(itemId)}
+                            onClick={() => consumeItem(itemId)}
                             className="mt-4 inline-flex items-center justify-center rounded-2xl border border-emerald-400/25 bg-emerald-500/10 px-4 py-2 text-sm text-emerald-100 transition hover:bg-emerald-500/15"
                           >
                             Use

@@ -295,7 +295,7 @@ export const useGameStore = create<GameState>()(
         let discoveredScenes = [...state.discoveredScenes]
         let runFlags = [...state.runFlags]
         let veilPressure = state.veilPressure
-        let choiceUseCounts = { ...state.choiceUseCounts }
+        const choiceUseCounts = { ...state.choiceUseCounts }
         let runComfortXpConsumed = state.runComfortXpConsumed
         let xpBonusFromPassives = 0
         let runStatus: RunStatus = currentSceneId === 'ashfall_archive' ? 'hub' : 'expedition'

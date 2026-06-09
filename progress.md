@@ -11,4 +11,5 @@ Original prompt: Improve Ashfaller tension/replayability by adding Veil Pressure
 - Runtime test attempt: started Vite dev server successfully, then attempted the Playwright client script but local `playwright` package is not installed (`ERR_MODULE_NOT_FOUND`), so scripted gameplay automation could not run in this environment without adding a dependency.
 
 ## 2026-04-15 (playtest follow-up)
+- Added an explicit **Jump to latest** control when Chronicle auto-follow is paused by scrolling.
 - Implemented comfort XP cap (first ledger/brazier/recenter only), pressure tiers (25/50/75) with hazards and extraction modifiers, run-end snapshots, hub contract strip, log scroll pinning, requirement hints with item names, consumable use in hub, veil salt −10, rebalanced `gameData` costs, `type` field on items.
