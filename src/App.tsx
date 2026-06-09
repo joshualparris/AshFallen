@@ -428,19 +428,29 @@ function App() {
               <div className="mt-5 space-y-5">
                 <div>
                   <p className="text-xs uppercase tracking-[0.2em] text-stone-400">Recovered Relics</p>
-                  <div className="mt-3 flex flex-wrap gap-2">
+                  <div className="mt-4 grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
                     {archiveRelics.length === 0 ? (
-                      <EmptyState text="Nothing stable has been brought home yet." compact />
+                      <div className="sm:col-span-2 lg:col-span-3">
+                        <EmptyState text="Nothing stable has been brought home yet." compact />
+                      </div>
                     ) : (
-                      archiveRelics.map((itemId) => {
+                      archiveRelics.map((itemId, idx) => {
                         const item = ITEM_DEFS[itemId]
                         return (
-                          <span
-                            key={itemId}
-                            className={`rounded-full border border-stone-700/60 bg-stone-950/60 px-3 py-2 text-xs uppercase tracking-[0.18em] ${rarityClasses[item.rarity]}`}
+                          <div
+                            key={`${itemId}-${idx}`}
+                            className={`rounded-2xl border bg-stone-900/40 p-3 transition hover:bg-stone-900/60 ${rarityBorders[item.rarity]}`}
                           >
-                            {item.name}
-                          </span>
+                            <div className="flex items-center justify-between gap-2">
+                              <h4 className={`text-sm font-medium ${rarityClasses[item.rarity]}`}>{item.name}</h4>
+                              <span className="text-[10px] text-stone-500">{itemTypeIcons[item.itemType]}</span>
+                            </div>
+                            <p className="mt-2 text-[11px] leading-relaxed text-stone-400 line-clamp-2">{item.description}</p>
+                            <div className="mt-2 flex items-center justify-between border-t border-stone-800/50 pt-2">
+                              <span className={`text-[10px] uppercase tracking-wider ${rarityClasses[item.rarity]}`}>{item.rarity}</span>
+                              <span className="text-[10px] text-stone-600">Attuned</span>
+                            </div>
+                          </div>
                         )
                       })
                     )}
