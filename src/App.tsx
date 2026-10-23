@@ -205,7 +205,9 @@ function App() {
             </div>
             <button
               type="button"
-              onClick={resetGame}
+              onClick={() => {
+                if (window.confirm('Reset your Chronicle? This permanently removes all runs, relics and progress on this device.')) resetGame()
+              }}
               className="rounded-2xl border border-red-400/25 bg-red-950/25 px-4 py-3 text-left text-sm text-red-100 transition hover:border-red-300/45 hover:bg-red-900/30"
             >
               <div className="text-xs uppercase tracking-[0.25em] text-red-200/70">Protocol</div>
