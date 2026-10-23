@@ -25,3 +25,11 @@ test('50 seeded expeditions preserve resource and save invariants',()=>{
   const saved=JSON.parse(memory.get('ashfaller-veil-between-save')!);assert.equal(saved.state.turn,store.getState().turn);assert.deepEqual(saved.state.inventory,store.getState().inventory);
  }}finally{Math.random=original;}
 });
+
+test('production serves built assets before the SPA fallback', async () => {
+ const {readFile}=await import('node:fs/promises');
+ const config=JSON.parse(await readFile(new URL('../vercel.json',import.meta.url),'utf8'));
+ assert.equal(config.routes[0].handle,'filesystem');
+ const html=await readFile(new URL('../index.html',import.meta.url),'utf8');
+ assert.match(html,/<script async src="https:\/\/parris-tech-services/);
+});
